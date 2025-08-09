@@ -16,6 +16,7 @@ class ConversationHandler:
         self.profile_manager = ProfileManager()
         self.chat_session = start_chat_session()
         self.last_critique = "角色档案为空，请引导用户描述角色的核心身份。"
+        self.confirmation_shown = False
         
     def get_initial_greeting(self):
         """
@@ -39,11 +40,11 @@ class ConversationHandler:
             if full_profile:
                 evaluation = evaluate_profile(full_profile)
                 self.last_critique = evaluation.get("critique", self.last_critique)
-                
-                if evaluation.get("is_ready_for_writing", False):
+
+                if evaluation.get("is_ready_for_writing", False) and not self.confirmation_shown:
                     confirmation_reason = evaluation.get("critique", "角色档案似乎已足够完整。")
                     yield f"CONFIRM_GENERATION::{confirmation_reason}"
-                    return
+                    self.confirmation_shown = True
 
         # Get the generator for the streaming response
         response_generator = get_conversation_response_stream(self.chat_session, message, self.last_critique)
