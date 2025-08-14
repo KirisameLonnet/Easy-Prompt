@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>Easy Prompt</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+        #chat { height: 60vh; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
+        #floating-dialog { position: fixed; top: 20px; right: 20px; background: #fff; border: 1px solid #333; padding: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); display: none; z-index: 1000; }
+        #floating-dialog button { margin-right: 5px; }
+    </style>
+</head>
+<body>
+    <div id="chat"></div>
+    <input id="user-input" type="text" placeholder="输入消息"/>
+    <button id="send">发送</button>
+
+    <div id="floating-dialog">
+        <p id="dialog-message"></p>
+        <button id="confirm-generate">生成 Prompt</button>
+        <button id="ignore-dialog">继续对话</button>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
