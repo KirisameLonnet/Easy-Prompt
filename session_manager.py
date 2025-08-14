@@ -17,12 +17,13 @@ class SessionManager:
         await websocket.accept()
         
         # Create a new handler for this session.
-        # The handler automatically prepares the initial greeting upon creation.
         handler = ConversationHandler()
         self.active_conversations[websocket] = handler
         
-        # Send the pre-generated greeting to the client.
-        await websocket.send_text(handler.initial_greeting)
+        # Get the initial greeting generator and send each chunk
+        initial_greeting_stream = handler.get_initial_greeting()
+        for chunk in initial_greeting_stream:
+            await websocket.send_text(chunk)
 
     def disconnect(self, websocket: WebSocket):
         """
@@ -37,6 +38,7 @@ class SessionManager:
         """
         handler = self.active_conversations.get(websocket)
         if handler:
-            # The handler is already initialized, so we just handle the message.
-            response = handler.handle_message(message)
-            await websocket.send_text(response)
+            # Get the response generator and send each chunk
+            response_stream = handler.handle_message(message)
+            for chunk in response_stream:
+                await websocket.send_text(chunk)

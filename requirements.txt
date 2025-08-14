@@ -5,3 +5,4 @@ python-dotenv
 prompt-toolkit
 watchdog
 websockets
+requests
