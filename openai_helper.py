@@ -15,10 +15,11 @@ openai_config = {
     "model": "deepseek-chat",  # 默认使用DeepSeek Chat模型
     "temperature": 0.7,
     "max_tokens": 4000,
-    "timeout": 30
+    "timeout": 30,
+    "nsfw_mode": False  # R18内容开关
 }
 
-def init_openai_llm(api_key: str, base_url: str, model: str, temperature: float = 0.7, max_tokens: int = 4000):
+def init_openai_llm(api_key: str, base_url: str, model: str, temperature: float = 0.7, max_tokens: int = 4000, nsfw_mode: bool = False):
     """
     初始化OpenAI格式的LLM配置
     
@@ -28,6 +29,7 @@ def init_openai_llm(api_key: str, base_url: str, model: str, temperature: float 
         model: 模型名称，如 gpt-3.5-turbo, claude-3-sonnet-20240229
         temperature: 温度参数
         max_tokens: 最大token数
+        nsfw_mode: 是否启用R18内容模式
     """
     global openai_config
     
@@ -36,10 +38,11 @@ def init_openai_llm(api_key: str, base_url: str, model: str, temperature: float 
         "base_url": base_url.rstrip('/'),
         "model": model,
         "temperature": temperature,
-        "max_tokens": max_tokens
+        "max_tokens": max_tokens,
+        "nsfw_mode": nsfw_mode
     })
     
-    print(f"OpenAI兼容API已配置: {base_url} -> {model}")
+    print(f"OpenAI兼容API已配置: {base_url} -> {model} (R18: {'开启' if nsfw_mode else '关闭'})")
 
 def is_openai_configured() -> bool:
     """检查OpenAI配置是否完整"""
@@ -115,10 +118,11 @@ def get_openai_conversation_response_stream(chat_history: list, user_message: st
         raise StopIteration((error_msg, "None"))
     
     try:
-        # 构造消息
+        # 构造消息，使用动态系统提示词
         prompts = lang_manager.system_prompts
+        nsfw_mode = openai_config.get("nsfw_mode", False)
         messages = [
-            {"role": "system", "content": prompts.CONVERSATION_SYSTEM_PROMPT}
+            {"role": "system", "content": prompts.get_conversation_system_prompt(nsfw_mode)}
         ]
         
         # 添加历史对话
@@ -202,8 +206,9 @@ def evaluate_openai_profile(full_profile: str) -> dict:
     
     try:
         prompts = lang_manager.system_prompts
+        nsfw_mode = openai_config.get("nsfw_mode", False)
         messages = [
-            {"role": "system", "content": prompts.EVALUATOR_SYSTEM_PROMPT},
+            {"role": "system", "content": prompts.get_evaluator_system_prompt(nsfw_mode)},
             {"role": "user", "content": full_profile}
         ]
         
@@ -232,8 +237,9 @@ def write_openai_final_prompt_stream(full_profile: str) -> Generator[str, None, 
         
     try:
         prompts = lang_manager.system_prompts
+        nsfw_mode = openai_config.get("nsfw_mode", False)
         messages = [
-            {"role": "system", "content": prompts.WRITER_SYSTEM_PROMPT},
+            {"role": "system", "content": prompts.get_writer_system_prompt(nsfw_mode)},
             {"role": "user", "content": full_profile}
         ]
         

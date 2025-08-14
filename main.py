@@ -22,7 +22,8 @@ current_api_config = {
     "base_url": "https://api.deepseek.com/v1",  # 默认使用DeepSeek
     "model": "deepseek-chat",  # 默认使用DeepSeek Chat模型
     "temperature": 0.7,
-    "max_tokens": 4000
+    "max_tokens": 4000,
+    "nsfw_mode": False  # 默认关闭R18内容
 }
 
 @app.on_event("startup")
@@ -53,9 +54,10 @@ async def send_json(websocket: WebSocket, message_type: str, payload: dict):
 def initialize_api(api_config: dict) -> bool:
     """Initialize API based on configuration"""
     try:
+        nsfw_mode = api_config.get("nsfw_mode", False)
         if api_config["api_type"] == "openai":
             return llm_helper.init_llm(
-                nsfw_mode=False,
+                nsfw_mode=nsfw_mode,
                 api_type="openai",
                 api_key=api_config["api_key"],
                 base_url=api_config["base_url"],
@@ -64,7 +66,7 @@ def initialize_api(api_config: dict) -> bool:
                 max_tokens=api_config.get("max_tokens", 4000)
             )
         else:
-            return llm_helper.init_llm(nsfw_mode=False, api_type="gemini")
+            return llm_helper.init_llm(nsfw_mode=nsfw_mode, api_type="gemini")
     except Exception as e:
         print(f"API初始化失败: {e}")
         return False

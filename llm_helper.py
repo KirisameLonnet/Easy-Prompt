@@ -50,9 +50,10 @@ def init_llm(nsfw_mode: bool = False, api_type: str = "gemini", **kwargs):
                 base_url=kwargs["base_url"],
                 model=kwargs["model"],
                 temperature=kwargs.get("temperature", 0.7),
-                max_tokens=kwargs.get("max_tokens", 4000)
+                max_tokens=kwargs.get("max_tokens", 4000),
+                nsfw_mode=nsfw_mode
             )
-            print(f"OpenAI兼容API已初始化: {kwargs['model']}")
+            print(f"OpenAI兼容API已初始化: {kwargs['model']} (R18: {'开启' if nsfw_mode else '关闭'})")
             return True
         except Exception as e:
             print(f"OpenAI API初始化失败: {e}")
@@ -83,19 +84,19 @@ def init_llm(nsfw_mode: bool = False, api_type: str = "gemini", **kwargs):
 
         CONVERSATION_MODEL = genai.GenerativeModel(
             conv_model_name,
-            system_instruction=prompts.CONVERSATION_SYSTEM_PROMPT,
+            system_instruction=prompts.get_conversation_system_prompt(nsfw_mode),
             safety_settings=safety_settings
         )
         EVALUATOR_MODEL = genai.GenerativeModel(
             eval_model_name,
-            system_instruction=prompts.EVALUATOR_SYSTEM_PROMPT,
+            system_instruction=prompts.get_evaluator_system_prompt(nsfw_mode),
             safety_settings=safety_settings
         )
         
         writer_generation_config = {"temperature": 0.7} # Keep writer deterministic
         WRITER_MODEL = genai.GenerativeModel(
             conv_model_name,
-            system_instruction=prompts.WRITER_SYSTEM_PROMPT,
+            system_instruction=prompts.get_writer_system_prompt(nsfw_mode),
             safety_settings=safety_settings,
             generation_config=writer_generation_config
         )
