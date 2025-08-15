@@ -48,20 +48,17 @@ class ConversationHandler:
         # Get the generator for the streaming response
         response_generator = get_conversation_response_stream(self.chat_session, message, self.last_critique)
         
-        # This is the correct way to handle a generator that yields and then returns.
-        # We iterate through the yielded chunks and the final return value is in the StopIteration exception.
+        # Handle the generator that yields chunks and final result
         full_response_chunks = []
         new_trait = "None"
-        iterator = iter(response_generator)
-        while True:
-            try:
-                chunk = next(iterator)
-                yield chunk
-                full_response_chunks.append(chunk)
-            except StopIteration as e:
-                # The generator is exhausted, its return value is in e.value
-                _, new_trait = e.value
+        
+        for chunk in response_generator:
+            if isinstance(chunk, tuple) and len(chunk) == 3 and chunk[0] == "__FINAL_RESULT__":
+                # This is the final result tuple
+                _, ai_response, new_trait = chunk
                 break
+            yield chunk
+            full_response_chunks.append(chunk)
         
         # Now that the stream is complete, append the new trait
         if new_trait and new_trait.lower() != "none":

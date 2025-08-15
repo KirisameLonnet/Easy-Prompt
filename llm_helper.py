@@ -98,39 +98,50 @@ def get_conversation_response_stream(chat_session, user_message: str, critique: 
         if not is_openai_configured():
             error_msg = lang_manager.t("ERROR_LLM_NOT_CONFIGURED")
             yield error_msg
-            raise StopIteration((error_msg, "None"))
+            yield ("__FINAL_RESULT__", error_msg, "None")
+            return
         
         # For OpenAI, use chat history instead of session
         try:
-            stream = get_openai_conversation_response_stream(chat_history, user_message, critique)
-            for chunk in stream:
+            stream_gen = get_openai_conversation_response_stream(chat_history, user_message, critique)
+            ai_response = ""
+            trait = "None"
+            
+            for chunk in stream_gen:
+                if isinstance(chunk, tuple) and len(chunk) == 3 and chunk[0] == "__FINAL_RESULT__":
+                    # This is the final result tuple
+                    _, ai_response, trait = chunk
+                    break
                 yield chunk
-        except StopIteration as e:
-            # Extract the final result from StopIteration
-            ai_response, trait = e.value
+            
             # Update chat history
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": ai_response})
-            raise StopIteration((ai_response, trait))
+            yield ("__FINAL_RESULT__", ai_response, trait)
+                
+        except Exception as e:
+            error_message = lang_manager.t("ERROR_CONVERSATION_LLM", error=e)
+            print(error_message)
+            yield error_message
+            yield ("__FINAL_RESULT__", error_message, "None")
     
     elif current_api_type == "gemini":
         if not is_gemini_configured():
             error_msg = lang_manager.t("ERROR_LLM_NOT_CONFIGURED")
             yield error_msg
-            raise StopIteration((error_msg, "None"))
+            yield ("__FINAL_RESULT__", error_msg, "None")
+            return
 
         try:
-            stream = get_gemini_conversation_response_stream(chat_session, user_message, critique)
-            for chunk in stream:
+            stream_gen = get_gemini_conversation_response_stream(chat_session, user_message, critique)
+            for chunk in stream_gen:
                 yield chunk
-        except StopIteration as e:
-            # Pass through the final result
-            raise e
+                
         except Exception as e:
             error_message = lang_manager.t("ERROR_CONVERSATION_LLM", error=e)
             print(error_message)
             yield error_message
-            raise StopIteration((error_message, "None"))
+            yield ("__FINAL_RESULT__", error_message, "None")
 
 def evaluate_profile(full_profile: str) -> dict:
     """

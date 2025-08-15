@@ -107,15 +107,13 @@ def get_openai_conversation_response_stream(chat_history: list, user_message: st
         critique: 诊断报告
     
     Yields:
-        Response chunks as strings
-    
-    Returns:
-        Final (ai_response, trait) tuple via StopIteration exception value
+        Response chunks as strings, followed by a final result tuple
     """
     if not is_openai_configured():
         error_msg = lang_manager.t("ERROR_LLM_NOT_CONFIGURED")
         yield error_msg
-        raise StopIteration((error_msg, "None"))
+        yield ("__FINAL_RESULT__", error_msg, "None")
+        return
     
     try:
         # 构造消息，使用动态系统提示词
@@ -185,17 +183,14 @@ def get_openai_conversation_response_stream(chat_history: list, user_message: st
         if not trait_part or trait_part.lower() == "none":
             trait_part = "None"
             
-        # 通过StopIteration返回最终结果
-        raise StopIteration((ai_response_part.strip(), trait_part))
+        # 发送最终结果作为特殊的 yield
+        yield ("__FINAL_RESULT__", ai_response_part.strip(), trait_part)
         
-    except StopIteration:
-        # 重新抛出StopIteration
-        raise
     except Exception as e:
         error_message = lang_manager.t("ERROR_CONVERSATION_LLM", error=e)
         print(error_message)
         yield error_message
-        raise StopIteration((error_message, "None"))
+        yield ("__FINAL_RESULT__", error_message, "None")
 
 def evaluate_openai_profile(full_profile: str) -> dict:
     """

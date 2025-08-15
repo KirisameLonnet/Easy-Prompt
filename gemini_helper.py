@@ -109,15 +109,13 @@ def get_gemini_conversation_response_stream(chat_session, user_message: str, cri
         critique: 诊断报告
     
     Yields:
-        Response chunks as strings
-    
-    Returns:
-        Final (ai_response, trait) tuple via StopIteration exception value
+        Response chunks as strings, followed by a final result tuple
     """
     if not is_gemini_configured():
         error_msg = lang_manager.t("ERROR_LLM_NOT_CONFIGURED")
         yield error_msg
-        raise StopIteration((error_msg, "None"))
+        yield ("__FINAL_RESULT__", error_msg, "None")
+        return
 
     try:
         message_with_context = f"诊断报告: {critique}\n\n---\n\n用户: {user_message}"
@@ -159,16 +157,13 @@ def get_gemini_conversation_response_stream(chat_session, user_message: str, cri
         if not trait_part or trait_part.lower() == "none":
             trait_part = "None"
             
-        raise StopIteration((ai_response_part.strip(), trait_part))
+        yield ("__FINAL_RESULT__", ai_response_part.strip(), trait_part)
 
-    except StopIteration:
-        # 重新抛出StopIteration
-        raise
     except Exception as e:
         error_message = lang_manager.t("ERROR_CONVERSATION_LLM", error=e)
         print(error_message)
         yield error_message
-        raise StopIteration((error_message, "None"))
+        yield ("__FINAL_RESULT__", error_message, "None")
 
 def evaluate_gemini_profile(full_profile: str) -> dict:
     """
