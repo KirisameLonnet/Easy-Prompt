@@ -2,86 +2,130 @@
 
 一个基于对话驱动的角色立体化提示词生成工具，通过智能对话帮助用户构建丰富、立体的角色档案，并生成高质量的提示词。
 
-## 项目特性
+## 🌟 项目特性
 
 - 🤖 **智能对话引导**：通过AI对话逐步挖掘角色特征
-- 📊 **实时评估反馈**：实时评估角色档案完整度
+- 📊 **实时评估反馈**：增强的评估状态显示，包含特性分析、关键词提取和完整度指标
 - 🎯 **流式输出**：支持实时流式对话体验
 - 🌐 **WebSocket通信**：前后端实时双向通信
-- 💻 **现代化前端**：基于Quasar + Vue 3 + TypeScript
-- 🐍 **Python后端**：FastAPI + Google Gemini API
+- 💻 **现代化前端**：基于Quasar + Vue 3 + TypeScript，响应式设计
+- 🐍 **多API支持**：支持 Google Gemini 和 OpenAI 兼容API（OpenAI、Claude、DeepSeek等）
+- 🔥 **R18内容模式**：专业的成人内容角色创作支持
+- 🔒 **多用户安全**：会话隔离，API配置互不干扰
+- 📱 **响应式UI**：增强的评估卡片，支持滚动查看详细信息
 
-## 系统架构
+## 🏗️ 系统架构
 
 ```
 easy-prompt/
-├── 后端服务 (Python FastAPI)
-│   ├── main.py              # WebSocket服务端点
-│   ├── conversation_handler.py  # 对话逻辑处理
-│   ├── llm_helper.py        # LLM接口封装
-│   ├── profile_manager.py   # 角色档案管理
-│   └── evaluator_service.py # 评估服务
-└── web-client/EasyP-webui/  # 前端应用 (Quasar)
-    ├── src/
-    │   ├── components/      # Vue组件
-    │   ├── pages/          # 页面
-    │   ├── services/       # WebSocket服务
-    │   └── types/          # TypeScript类型定义
-    └── ...
+├── 📁 后端服务 (Python FastAPI + WebSocket)
+│   ├── main.py                    # WebSocket服务端点，多用户会话管理
+│   ├── conversation_handler.py    # 对话逻辑处理
+│   ├── llm_helper.py             # 统一LLM接口封装
+│   ├── openai_helper.py          # OpenAI兼容API支持
+│   ├── gemini_helper.py          # Google Gemini API支持
+│   ├── profile_manager.py        # 角色档案管理
+│   ├── evaluator_service.py      # 后台评估服务
+│   ├── language_manager.py       # 多语言支持
+│   └── session_manager.py        # 会话管理
+├── 📁 前端应用 (Quasar + Vue 3 + TypeScript)
+│   └── web-client/EasyP-webui/
+│       ├── src/
+│       │   ├── components/        # Vue组件
+│       │   │   ├── EnhancedEvaluationCard.vue  # 增强评估卡片
+│       │   │   └── ...
+│       │   ├── pages/            # 页面
+│       │   ├── services/         # WebSocket服务
+│       │   └── types/            # TypeScript类型定义
+│       └── ...
+├── 📁 配置与文档
+│   ├── Document/                 # 开发文档
+│   ├── locales/                  # 多语言文件
+│   └── requirements.txt          # Python依赖
+└── 📁 会话数据
+    └── sessions/                 # 动态生成的用户会话目录
+        └── {session-id}/
+            ├── character_profile.txt
+            └── score.json
 ```
 
-## 环境要求
+## 🔧 技术栈
 
+### 后端
+- **Python 3.8+** - 核心编程语言
+- **FastAPI** - 现代、高性能的Web框架
+- **WebSocket** - 实时双向通信
+- **Google Generative AI** - Gemini API支持
+- **OpenAI兼容API** - 支持OpenAI、Claude、DeepSeek等
+
+### 前端
+- **Vue 3** - 渐进式JavaScript框架
+- **Quasar** - Vue.js企业级框架
+- **TypeScript** - 类型安全的JavaScript
+- **WebSocket** - 实时通信客户端
+
+## 🚀 快速开始
+
+## 🚀 快速开始
+
+### 环境要求
 - **Python**: 3.8+
 - **Node.js**: 16+
-- **Google API Key**: 需要Gemini API访问权限
+- **API密钥**: Google Gemini API 或 OpenAI兼容API（如DeepSeek、Claude等）
 
-## 部署指南
+### 部署方式
 
-**⚠️ 开始部署前请务必先阅读[环境变量配置](#环境变量配置)章节！**
+#### 🎯 方式1：前端配置API（推荐）
+无需环境变量配置，在前端界面直接配置API！
 
-### 1. Windows 部署
+#### 🔧 方式2：环境变量配置
+如需默认API配置，可设置环境变量。
 
-#### 1.1 准备工作
+**⚠️ 注意：前端配置会覆盖环境变量设置**
 
-```cmd
-# 克隆项目
+## 📦 安装部署
+
+### 1. 克隆项目
+
+```bash
 git clone <repository-url>
 cd easy-prompt
+```
 
-# 创建Python虚拟环境
+### 2. 后端设置
+
+#### Windows:
+```cmd
+# 创建虚拟环境
 python -m venv venv
-
-# 激活虚拟环境
 venv\Scripts\activate
 
-# 升级pip
-python -m pip install --upgrade pip
-```
-
-#### 1.2 安装Python依赖
-
-```cmd
-# 安装后端依赖
+# 安装依赖
 pip install -r requirements.txt
-```
 
-#### 1.3 配置环境变量
-
-参考[环境变量配置](#环境变量配置)章节创建 `env/` 目录和配置文件。
-
-#### 1.4 启动后端服务
-
-```cmd
-# 确保虚拟环境已激活
+# 启动后端
 uvicorn main:app --reload
 ```
 
-#### 1.5 安装和启动前端
+#### macOS/Linux:
+```bash
+# 方式1: 使用Nix (推荐)
+nix develop
 
-```cmd
-# 切换到前端目录
-cd web-client\EasyP-webui
+# 方式2: 传统方式
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 启动后端
+uvicorn main:app --reload
+```
+
+### 3. 前端设置
+
+```bash
+# 进入前端目录
+cd web-client/EasyP-webui
 
 # 安装依赖
 npm install
@@ -90,76 +134,74 @@ npm install
 npm run dev
 ```
 
-### 2. macOS/Linux 部署
+### 4. 访问应用
 
-#### 2.1 方式一：使用 Nix Flake（推荐）
+- **前端**: http://localhost:9000
+- **后端API**: http://localhost:8000
+- **API文档**: http://localhost:8000/docs
 
-如果你的系统安装了 Nix：
+## ⚙️ API配置
 
+### 前端配置（推荐）
+
+1. 打开前端应用
+2. 点击 **设置** 按钮
+3. 选择API类型：
+   - **Google Gemini**: 需要Google API Key
+   - **OpenAI兼容**: 支持OpenAI、Claude、DeepSeek等
+4. 填入API密钥和相关配置
+5. 点击 **保存配置** 开始使用
+
+### 支持的API提供商
+
+| 提供商 | API类型 | Base URL | 推荐模型 | 说明 |
+|--------|---------|----------|----------|------|
+| Google Gemini | `gemini` | - | `gemini-2.5-flash` | Google官方模型 |
+| OpenAI | `openai` | `https://api.openai.com/v1` | `gpt-4`, `gpt-3.5-turbo` | OpenAI官方 |
+| DeepSeek | `openai` | `https://api.deepseek.com/v1` | `deepseek-chat` | 性价比推荐 |
+| Claude (Anthropic) | `openai` | 通过代理 | `claude-3-sonnet` | 通过OpenAI兼容接口 |
+
+### 环境变量配置（可选）
+
+如需设置默认API配置，可创建以下环境变量：
+
+#### OpenAI兼容API（推荐）
 ```bash
-# 克隆项目
-git clone <repository-url>
-cd easy-prompt
-
-# 使用Nix自动设置开发环境
-nix develop
-
-# 创建Python虚拟环境
-python -m venv venv
-source venv/bin/activate
-
-# 安装Python依赖
-pip install -r requirements.txt
-
-# 配置环境变量（参考环境变量配置章节）
-# 详细步骤请参考下方的"环境变量配置"章节
-
-# 启动后端服务（开发模式，支持热重载）
-uvicorn main:app --reload
+export OPENAI_API_KEY="your_api_key"
+export OPENAI_BASE_URL="https://api.deepseek.com/v1"  # 可选，默认DeepSeek
+export OPENAI_MODEL="deepseek-chat"                   # 可选
+export OPENAI_TEMPERATURE="0.7"                       # 可选
+export OPENAI_MAX_TOKENS="4000"                       # 可选
+export NSFW_MODE="false"                               # 可选，R18模式
 ```
 
-在另一个终端中启动前端：
-
+#### Google Gemini API
 ```bash
-cd web-client/EasyP-webui
-npm install
-npm run dev
+export GOOGLE_API_KEY="your_google_api_key"
+export GEMINI_MODEL="gemini-2.5-flash"                # 可选
+export EVALUATOR_MODEL="gemini-2.5-flash"             # 可选
+export NSFW_MODE="false"                               # 可选，R18模式
 ```
 
-#### 2.2 方式二：传统方式（无Nix）
+## 🎨 功能特性
 
-```bash
-# 克隆项目
-git clone <repository-url>
-cd easy-prompt
+### R18内容模式
+- 专业的成人内容角色创作支持
+- 增强的R18提示词工程
+- 安全的内容过滤机制
 
-# 创建Python虚拟环境
-python3 -m venv venv
-source venv/bin/activate
+### 增强的评估系统
+- **实时特性提取**: 自动识别角色特征
+- **关键词分析**: 智能提取相关关键词  
+- **完整度指标**: 多维度评估角色完善程度
+- **可视化评分**: 直观的圆形进度图表
+- **滚动式详情**: 响应式卡片设计
 
-# 升级pip
-pip install --upgrade pip
-
-# 安装Python依赖
-pip install -r requirements.txt
-
-# 配置环境变量（参考环境变量配置章节）
-# 详细步骤请参考下方的"环境变量配置"章节
-
-# 启动后端服务（开发模式，支持热重载）
-uvicorn main:app --reload
-```
-
-在另一个终端中：
-
-```bash
-# 安装Node.js (如果未安装)
-# Ubuntu/Debian: sudo apt install nodejs npm
-# macOS: brew install node
-# 或访问 https://nodejs.org/ 下载安装
-
-# 切换到前端目录
-cd web-client/EasyP-webui
+### 多API支持
+- **自动检测**: 智能识别可用的API配置
+- **实时切换**: 会话中随时更改API设置
+- **会话隔离**: 多用户API配置互不干扰
+- **故障转移**: API失败时自动提示
 
 # 安装前端依赖
 npm install
@@ -172,63 +214,54 @@ npm run dev
 
 **⚠️ 重要：开始开发前必须正确配置环境变量**
 
-在项目根目录下创建 `env/` 目录，并按照以下结构创建配置文件：
+### 多API支持
+- **自动检测**: 智能识别可用的API配置
+- **实时切换**: 会话中随时更改API设置
+- **会话隔离**: 多用户API配置互不干扰
+- **故障转移**: API失败时自动提示
 
-```
-easy-prompt/
-├── env/
-│   ├── GOOGLE_API_KEY      # Google Gemini API密钥
-│   ├── GEMINI_MODEL        # 对话模型名称
-│   └── EVALUATOR_MODEL     # 评估模型名称
-├── main.py
-├── requirements.txt
-└── ...
-```
+## 📖 使用指南
 
-### 创建环境配置文件
+### 基本使用流程
 
-**Windows:**
+1. **启动应用**
+   - 后端：`uvicorn main:app --reload`
+   - 前端：`npm run dev`
+   - 访问：http://localhost:9000
 
-```cmd
-mkdir env
-echo your_google_api_key_here > env\GOOGLE_API_KEY
-echo gemini-1.5-flash > env\GEMINI_MODEL
-echo gemini-1.5-flash > env\EVALUATOR_MODEL
-```
+2. **配置API**
+   - 点击 **设置** 按钮
+   - 选择API类型（Gemini 或 OpenAI兼容）
+   - 填入API密钥和配置
+   - 保存并开始使用
 
-**macOS/Linux:**
+3. **创建角色**
+   - 与AI开始对话
+   - 描述角色的基本信息
+   - 跟随AI的引导问题逐步完善
 
-```bash
-mkdir -p env
-echo "your_google_api_key_here" > env/GOOGLE_API_KEY
-echo "gemini-1.5-flash" > env/GEMINI_MODEL
-echo "gemini-1.5-flash" > env/EVALUATOR_MODEL
-```
+4. **实时评估**
+   - 右侧评估卡片显示实时分析
+   - 查看已提取的特性和关键词
+   - 监控角色完整度指标
 
-### 环境变量说明
+5. **生成最终提示词**
+   - 当评估达到要求时，AI会询问是否生成
+   - 确认后获得专业的角色扮演提示词
 
-| 文件名              | 说明                  | 示例值                | 备注                                   |
-| ------------------- | --------------------- | --------------------- | -------------------------------------- |
-| `GOOGLE_API_KEY`  | Google Gemini API密钥 | `your_api_key_here` | **必需**，从Google AI Studio获取 |
-| `GEMINI_MODEL`    | 对话模型名称          | `gemini-1.5-flash`  | 用于生成对话内容                       |
-| `EVALUATOR_MODEL` | 评估模型名称          | `gemini-1.5-flash`  | 用于评估角色档案                       |
+### 高级功能
 
-**注意事项：**
+#### R18内容模式
+- 在API配置中启用R18模式
+- 专业创作成人内容角色
+- 增强的提示词和安全设置
 
-- 每个文件只包含一行内容，无需引号
-- `GOOGLE_API_KEY` 需要从 [Google AI Studio](https://aistudio.google.com/) 获取
-- `env/` 目录已添加到 `.gitignore`，不会被提交到代码仓库
-- 请妥善保管API密钥，不要泄露给他人
+#### 多用户支持
+- 每个用户独立的会话空间
+- API配置互不干扰
+- 安全的数据隔离
 
-## 使用说明
-
-1. **启动服务**：使用 `uvicorn main:app --reload` 启动后端服务（默认运行在 `http://127.0.0.1:8000`）
-2. **访问前端**：打开浏览器访问 `http://localhost:9000`
-3. **开始对话**：点击连接按钮，开始与AI对话构建角色
-4. **查看评估**：右侧面板实时显示角色特征评估结果
-5. **生成提示词**：当角色完整度足够时，确认生成最终提示词
-
-## 开发说明
+## 🛠️ 开发指南
 
 ### 后端开发
 
@@ -239,6 +272,9 @@ source venv/bin/activate  # Linux/macOS
 
 # 启动开发服务器（支持热重载）
 uvicorn main:app --reload
+
+# 查看API文档
+# http://localhost:8000/docs
 ```
 
 ### 前端开发
@@ -253,88 +289,64 @@ npm run dev
 npm run build
 
 # 类型检查
-npm run type-check
+npm run lint
 
 # 代码格式化
 npm run format
 ```
 
-## 常见问题
+### 项目结构
 
-### 1. 环境变量配置问题
-
-**问题**：后端启动时提示找不到环境变量
-```bash
-# 检查env目录结构
-ls -la env/  # Linux/macOS
-dir env\     # Windows
-
-# 确保文件存在且内容正确
-cat env/GOOGLE_API_KEY  # Linux/macOS
-type env\GOOGLE_API_KEY # Windows
+```
+easy-prompt/
+├── 📁 CopilotFile/              # 测试文件和总结
+├── 📁 Document/                 # 开发文档
+│   ├── DEV_DOC.md              # 详细开发文档
+│   ├── WEBSOCKET_API.md        # WebSocket API文档
+│   └── ...
+├── 📁 locales/zh/              # 多语言支持
+├── 📁 sessions/                # 用户会话数据（运行时生成）
+└── 📁 web-client/EasyP-webui/  # 前端应用
 ```
 
-**解决方案**：
-- 确保 `env/` 目录在项目根目录下
-- 检查所有必需的配置文件是否存在
-- 确认文件内容格式正确（每个文件只有一行，无引号）
+## 🚨 常见问题
 
-### 2. Python虚拟环境问题
+### API配置问题
 
-**问题**：虚拟环境激活失败
+**Q: API配置失败怎么办？**
+A: 
+1. 检查API密钥是否正确
+2. 确认网络连接
+3. 查看浏览器开发者工具的错误信息
+4. 尝试切换不同的API提供商
 
-```bash
-# 删除虚拟环境重新创建
-rm -rf venv  # Linux/macOS
-# 或 rmdir /s venv  # Windows
+**Q: 为什么两个人同时使用会有冲突？**
+A: 
+- Gemini API存在全局配置冲突，建议使用OpenAI兼容API
+- 系统已添加API配置锁来减少冲突
+- 推荐生产环境使用DeepSeek等OpenAI兼容API
 
-# 重新创建
-python -m venv venv
-```
+### 功能使用问题
 
-### 3. API密钥配置问题
+**Q: 为什么AI一直在问问题，不生成最终提示词？**
+A: 系统会根据角色丰富度自动判断。角色信息越详细，越容易触发最终生成。
 
-**问题**：Google API访问失败
+**Q: 如何启用R18模式？**
+A: 在API配置中启用"R18内容模式"开关，系统会使用专门的成人内容提示词。
 
-- 确保API密钥正确配置在 `env/GOOGLE_API_KEY` 文件中
-- 检查API密钥是否有Gemini访问权限
-- 确认API配额是否充足
+**Q: 生成的角色档案保存在哪里？**
+A: 保存在项目的 `sessions/` 目录下，每个会话都有独立的文件夹。
 
-### 4. 端口冲突问题
+## 📚 相关文档
 
-**问题**：端口8000或9000被占用
+- [开发文档](Document/DEV_DOC.md) - 详细的技术文档
+- [WebSocket API](Document/WEBSOCKET_API.md) - API接口文档
+- [评估重构总结](CopilotFile/EVALUATION_REFACTOR_SUMMARY.md) - 最新功能说明
 
-```bash
-# 查看端口占用
-netstat -an | grep 8000  # Linux/macOS
-netstat -an | findstr 8000  # Windows
+## 🤝 贡献
 
-# 修改后端端口：编辑main.py中的port参数
-# 修改前端端口：编辑web-client/EasyP-webui/quasar.config.ts
-```
+欢迎提交 Issue 和 Pull Request！
 
-### 5. WebSocket连接问题
+## 📄 许可证
 
-**问题**：前端无法连接后端
-
-- 确保后端服务正常运行
-- 检查防火墙设置
-- 确认WebSocket URL配置正确（`ws://127.0.0.1:8000/ws/prompt`）
-
-## 技术栈
-
-- **后端**: Python, FastAPI, WebSocket, Google Gemini API
-- **前端**: Vue 3, Quasar Framework, TypeScript, WebSocket
-- **开发工具**: Nix Flake, ESLint, Prettier, vue-tsc
-
-## 许可证
-
-[添加你的许可证信息]
-
-## 贡献
-
-欢迎提交Issue和Pull Request来改进项目。
-
-## 联系方式
-
-[添加你的联系方式]
+MIT License
