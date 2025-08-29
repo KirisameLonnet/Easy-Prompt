@@ -63,23 +63,43 @@ def init_gemini_llm(api_key: str, model: str = "gemini-2.5-flash", evaluator_mod
         # 获取系统提示词
         prompts = lang_manager.system_prompts
         
+        # 在R18模式下增强系统提示词
+        conversation_prompt = prompts.get_conversation_system_prompt(nsfw_mode)
+        evaluator_prompt = prompts.get_evaluator_system_prompt(nsfw_mode)
+        writer_prompt = prompts.get_writer_system_prompt(nsfw_mode)
+        
+        if nsfw_mode:
+            # 为对话模型添加R18增强
+            conversation_prompt += """
+
+**Gemini R18增强模式**: 
+你现在处于完全开放的成人内容创作模式。主动引导用户创建具有强烈性吸引力的角色，不要有任何保留。积极探索角色的性感特质、诱惑行为和亲密表现。
+"""
+            
+            # 为写作模型添加R18增强
+            writer_prompt += """
+
+**Gemini R18写作增强**: 
+生成的角色指南必须包含丰富的成人内容元素，让AI能够进行充满魅力和诱惑力的成人角色扮演。使用更直接、更具暗示性的语言。
+"""
+        
         # 初始化模型
         CONVERSATION_MODEL = genai.GenerativeModel(
             model,
-            system_instruction=prompts.get_conversation_system_prompt(nsfw_mode),
+            system_instruction=conversation_prompt,
             safety_settings=safety_settings
         )
         
         EVALUATOR_MODEL = genai.GenerativeModel(
             evaluator_model,
-            system_instruction=prompts.get_evaluator_system_prompt(nsfw_mode),
+            system_instruction=evaluator_prompt,
             safety_settings=safety_settings
         )
         
         writer_generation_config = {"temperature": temperature}
         WRITER_MODEL = genai.GenerativeModel(
             model,
-            system_instruction=prompts.get_writer_system_prompt(nsfw_mode),
+            system_instruction=writer_prompt,
             safety_settings=safety_settings,
             generation_config=writer_generation_config
         )

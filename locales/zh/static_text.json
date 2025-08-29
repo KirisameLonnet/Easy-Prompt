@@ -12,8 +12,6 @@
   "YOU_PROMPT": "You: ",
   "EXITING": "正在退出...",
   "APP_SHUTDOWN": "应用已关闭。",
-  "SCORE_FEEDBACK": "[角色立体度: {score}/{threshold}]",
-  "SCORE_THRESHOLD_MET": "--- 分数阈值 ({threshold}) 已达到！正在生成最终提示词。 ---",
   "FINAL_PROMPT_HEADER": "✨ --- 这是您的最终角色扮演提示词! --- ✨",
   "ERROR_LLM_NOT_CONFIGURED": "错误：语言模型未配置。请检查您的API密钥。",
   "ERROR_CONVERSATION_LLM": "抱歉，我在思考时遇到了问题: {error}",

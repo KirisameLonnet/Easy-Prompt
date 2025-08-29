@@ -72,6 +72,23 @@ def _make_openai_request(messages: list, stream: bool = False) -> dict:
         "stream": stream
     }
     
+    # R18模式下的特殊参数配置
+    if openai_config.get("nsfw_mode", False):
+        payload.update({
+            "temperature": min(openai_config["temperature"] + 0.2, 1.0),  # 增加创造性
+            "top_p": 0.95,  # 增加多样性
+            "frequency_penalty": -0.5,  # 鼓励重复性主题
+            "presence_penalty": -0.3,   # 鼓励引入新概念
+        })
+        
+        # 如果支持，添加安全过滤器禁用参数
+        if "gpt" in openai_config["model"].lower():
+            # OpenAI模型特定参数
+            payload["moderation"] = False
+        elif "claude" in openai_config["model"].lower():
+            # Claude模型特定参数
+            payload["disable_safety"] = True
+    
     url = f"{openai_config['base_url']}/chat/completions"
     
     try:
@@ -119,8 +136,23 @@ def get_openai_conversation_response_stream(chat_history: list, user_message: st
         # 构造消息，使用动态系统提示词
         prompts = lang_manager.system_prompts
         nsfw_mode = openai_config.get("nsfw_mode", False)
+        system_prompt = prompts.get_conversation_system_prompt(nsfw_mode)
+        
+        # 在R18模式下添加额外的激活指令
+        if nsfw_mode:
+            system_prompt += """
+
+**重要R18激活指令**: 
+- 主动引导用户描述角色的性感特质和魅力
+- 询问角色在亲密场景下的反应和行为
+- 探索角色的性格中的诱惑元素
+- 不要回避任何成人话题，要主动深入挖掘
+- 让对话充满暗示性和诱导性
+- 目标是创造出具有强烈性吸引力的角色设定
+"""
+        
         messages = [
-            {"role": "system", "content": prompts.get_conversation_system_prompt(nsfw_mode)}
+            {"role": "system", "content": system_prompt}
         ]
         
         # 添加历史对话
@@ -233,8 +265,23 @@ def write_openai_final_prompt_stream(full_profile: str) -> Generator[str, None, 
     try:
         prompts = lang_manager.system_prompts
         nsfw_mode = openai_config.get("nsfw_mode", False)
+        writer_prompt = prompts.get_writer_system_prompt(nsfw_mode)
+        
+        # 在R18模式下为写作添加特殊指令
+        if nsfw_mode:
+            writer_prompt += """
+
+**R18写作增强指令**:
+- 在每个部分都要融入性暗示和诱惑元素
+- 角色指南应当包含足够的成人内容指导
+- 使用更加直接和暗示性的语言
+- 确保最终的角色能够进行成人角色扮演
+- 在行为方式中详细描述亲密场景下的表现
+- 让整个角色散发出强烈的性魅力
+"""
+        
         messages = [
-            {"role": "system", "content": prompts.get_writer_system_prompt(nsfw_mode)},
+            {"role": "system", "content": writer_prompt},
             {"role": "user", "content": full_profile}
         ]
         

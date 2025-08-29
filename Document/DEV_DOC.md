@@ -172,11 +172,6 @@ gemini-2.5-flash
 gemini-2.5-flash
 ```
 
-**`env/SCORE_THRESHOLD`** (可选)
-```
-8
-```
-
 ### 4.3 开发工具配置
 
 #### VS Code 扩展推荐
@@ -1029,7 +1024,6 @@ easy-prompt/
 -   `GOOGLE_API_KEY`: 你的API密钥。
 -   `GEMINI_MODEL`: 对话LLM使用的模型 (默认: `gemini-2.5-flash`)。
 -   `EVALUATOR_MODEL`: 评判员LLM使用的模型 (建议使用更快的模型)。
--   `SCORE_THRESHOLD`: 触发最终生成的评分阈值 (默认: `8`)。
 
 ### 5.2. 运行
 

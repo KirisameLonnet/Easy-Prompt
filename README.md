@@ -179,8 +179,7 @@ easy-prompt/
 ├── env/
 │   ├── GOOGLE_API_KEY      # Google Gemini API密钥
 │   ├── GEMINI_MODEL        # 对话模型名称
-│   ├── EVALUATOR_MODEL     # 评估模型名称
-│   └── SCORE_THRESHOLD     # 评估分数阈值
+│   └── EVALUATOR_MODEL     # 评估模型名称
 ├── main.py
 ├── requirements.txt
 └── ...
@@ -195,7 +194,6 @@ mkdir env
 echo your_google_api_key_here > env\GOOGLE_API_KEY
 echo gemini-1.5-flash > env\GEMINI_MODEL
 echo gemini-1.5-flash > env\EVALUATOR_MODEL
-echo 80 > env\SCORE_THRESHOLD
 ```
 
 **macOS/Linux:**
@@ -205,7 +203,6 @@ mkdir -p env
 echo "your_google_api_key_here" > env/GOOGLE_API_KEY
 echo "gemini-1.5-flash" > env/GEMINI_MODEL
 echo "gemini-1.5-flash" > env/EVALUATOR_MODEL
-echo "80" > env/SCORE_THRESHOLD
 ```
 
 ### 环境变量说明
@@ -215,7 +212,6 @@ echo "80" > env/SCORE_THRESHOLD
 | `GOOGLE_API_KEY`  | Google Gemini API密钥 | `your_api_key_here` | **必需**，从Google AI Studio获取 |
 | `GEMINI_MODEL`    | 对话模型名称          | `gemini-1.5-flash`  | 用于生成对话内容                       |
 | `EVALUATOR_MODEL` | 评估模型名称          | `gemini-1.5-flash`  | 用于评估角色档案                       |
-| `SCORE_THRESHOLD` | 评估分数阈值          | `80`                | 决定何时可以生成最终提示词             |
 
 **注意事项：**
 

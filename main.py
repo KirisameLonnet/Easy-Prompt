@@ -7,6 +7,10 @@ from language_manager import lang_manager
 import llm_helper
 import os
 from contextlib import asynccontextmanager
+from threading import Lock
+
+# 添加API配置锁，确保多用户API配置不冲突
+api_config_lock = Lock()
 
 # --- Application Setup ---
 # 使用 lifespan 替代已弃用的 on_event 钩子
@@ -89,55 +93,56 @@ def get_default_api_config() -> dict:
 
 
 def initialize_api(api_config: dict) -> bool:
-    """Initialize API based on configuration"""
-    try:
-        nsfw_mode = api_config.get("nsfw_mode", False)
-        if api_config.get("api_type") == "openai":
-            # 允许从环境变量补齐缺失字段
-            api_key = api_config.get("api_key") or os.getenv("OPENAI_API_KEY")
-            base_url = api_config.get("base_url") or os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
-            model = api_config.get("model") or os.getenv("OPENAI_MODEL", "deepseek-chat")
-            temperature = api_config.get("temperature", float(os.getenv("OPENAI_TEMPERATURE", "0.7")))
-            max_tokens = api_config.get("max_tokens", int(os.getenv("OPENAI_MAX_TOKENS", "4000")))
+    """Initialize API based on configuration with thread safety"""
+    with api_config_lock:  # 确保API配置的线程安全
+        try:
+            nsfw_mode = api_config.get("nsfw_mode", False)
+            if api_config.get("api_type") == "openai":
+                # 允许从环境变量补齐缺失字段
+                api_key = api_config.get("api_key") or os.getenv("OPENAI_API_KEY")
+                base_url = api_config.get("base_url") or os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
+                model = api_config.get("model") or os.getenv("OPENAI_MODEL", "deepseek-chat")
+                temperature = api_config.get("temperature", float(os.getenv("OPENAI_TEMPERATURE", "0.7")))
+                max_tokens = api_config.get("max_tokens", int(os.getenv("OPENAI_MAX_TOKENS", "4000")))
 
-            if not api_key:
-                print("错误: OpenAI API配置缺少参数: api_key")
+                if not api_key:
+                    print("错误: OpenAI API配置缺少参数: api_key")
+                    return False
+
+                return llm_helper.init_llm(
+                    nsfw_mode=nsfw_mode,
+                    api_type="openai",
+                    api_key=api_key,
+                    base_url=base_url,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            elif api_config.get("api_type") == "gemini":
+                # 允许从环境变量补齐缺失字段
+                api_key = api_config.get("api_key") or os.getenv("GOOGLE_API_KEY")
+                model = api_config.get("model") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+                evaluator_model = api_config.get("evaluator_model") or os.getenv("EVALUATOR_MODEL", "")
+                temperature = api_config.get("temperature", float(os.getenv("GEMINI_TEMPERATURE", "0.7")))
+
+                if not api_key:
+                    print("错误: Gemini API配置缺少参数: api_key")
+                    return False
+
+                return llm_helper.init_llm(
+                    nsfw_mode=nsfw_mode,
+                    api_type="gemini",
+                    api_key=api_key,
+                    model=model,
+                    evaluator_model=evaluator_model if evaluator_model else None,
+                    temperature=temperature,
+                )
+            else:
+                print(f"不支持的API类型: {api_config.get('api_type')}")
                 return False
-
-            return llm_helper.init_llm(
-                nsfw_mode=nsfw_mode,
-                api_type="openai",
-                api_key=api_key,
-                base_url=base_url,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        elif api_config.get("api_type") == "gemini":
-            # 允许从环境变量补齐缺失字段
-            api_key = api_config.get("api_key") or os.getenv("GOOGLE_API_KEY")
-            model = api_config.get("model") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-            evaluator_model = api_config.get("evaluator_model") or os.getenv("EVALUATOR_MODEL", "")
-            temperature = api_config.get("temperature", float(os.getenv("GEMINI_TEMPERATURE", "0.7")))
-
-            if not api_key:
-                print("错误: Gemini API配置缺少参数: api_key")
-                return False
-
-            return llm_helper.init_llm(
-                nsfw_mode=nsfw_mode,
-                api_type="gemini",
-                api_key=api_key,
-                model=model,
-                evaluator_model=evaluator_model if evaluator_model else None,
-                temperature=temperature,
-            )
-        else:
-            print(f"不支持的API类型: {api_config.get('api_type')}")
+        except Exception as e:
+            print(f"API初始化失败: {e}")
             return False
-    except Exception as e:
-        print(f"API初始化失败: {e}")
-        return False
 
 
 @app.websocket("/ws/prompt")
@@ -208,12 +213,20 @@ async def websocket_endpoint(websocket: WebSocket):
                         if evaluation_result:
                             critique = evaluation_result.get("critique", "")
                             extracted_traits = evaluation_result.get("extracted_traits", [])
+                            extracted_keywords = evaluation_result.get("extracted_keywords", [])
+                            evaluation_score = evaluation_result.get("evaluation_score")
+                            completeness_breakdown = evaluation_result.get("completeness_breakdown", {})
+                            suggestions = evaluation_result.get("suggestions", [])
                             is_ready = evaluation_result.get("is_ready_for_writing", False)
 
-                            # 发送评估结果
+                            # 发送完整的评估结果
                             await send_json(websocket, "evaluation_update", {
                                 "message": f"[评估完成] {critique}",
                                 "extracted_traits": extracted_traits,
+                                "extracted_keywords": extracted_keywords,
+                                "evaluation_score": evaluation_score,
+                                "completeness_breakdown": completeness_breakdown,
+                                "suggestions": suggestions,
                                 "is_ready": is_ready
                             })
                         else:
@@ -274,12 +287,20 @@ async def websocket_endpoint(websocket: WebSocket):
                                 if evaluation_result:
                                     critique = evaluation_result.get("critique", "")
                                     extracted_traits = evaluation_result.get("extracted_traits", [])
+                                    extracted_keywords = evaluation_result.get("extracted_keywords", [])
+                                    evaluation_score = evaluation_result.get("evaluation_score")
+                                    completeness_breakdown = evaluation_result.get("completeness_breakdown", {})
+                                    suggestions = evaluation_result.get("suggestions", [])
                                     is_ready = evaluation_result.get("is_ready_for_writing", False)
 
-                                    # 发送评估结果
+                                    # 发送完整的评估结果
                                     await send_json(websocket, "evaluation_update", {
                                         "message": f"[评估完成] {critique}",
                                         "extracted_traits": extracted_traits,
+                                        "extracted_keywords": extracted_keywords,
+                                        "evaluation_score": evaluation_score,
+                                        "completeness_breakdown": completeness_breakdown,
+                                        "suggestions": suggestions,
                                         "is_ready": is_ready
                                     })
                                 else:
