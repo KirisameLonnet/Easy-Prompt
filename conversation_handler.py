@@ -67,6 +67,10 @@ class ConversationHandler:
                 if web_content['description']:
                     yield f"📝 网页描述: {web_content['description']}"
                 
+                # 调试信息：显示网页内容长度
+                content_length = len(web_content['content']) if web_content['content'] else 0
+                yield f"📊 网页内容长度: {content_length} 字符"
+                
                 # 将网页内容整合到消息中
                 enhanced_message = f"""
 用户输入: {message}
@@ -80,6 +84,7 @@ class ConversationHandler:
 请基于以上网页内容帮助用户完善角色设定。
 """
                 message = enhanced_message
+                yield f"✅ 网页内容已整合到上下文中，内容长度: {content_length} 字符"
             else:
                 error_msg = link_result.get('error', '网页抓取失败')
                 yield f"❌ 网页抓取失败: {error_msg}"

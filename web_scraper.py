@@ -119,13 +119,28 @@ class WebScraper:
         """提取网页标题"""
         title_tag = soup.find('title')
         if title_tag:
-            return title_tag.get_text().strip()
+            title_text = title_tag.get_text().strip()
+            if title_text and title_text != "无标题":
+                print(f"从title标签提取标题: {title_text}")
+                return title_text
         
         # 尝试从h1标签获取
         h1_tag = soup.find('h1')
         if h1_tag:
-            return h1_tag.get_text().strip()
+            h1_text = h1_tag.get_text().strip()
+            if h1_text:
+                print(f"从h1标签提取标题: {h1_text}")
+                return h1_text
         
+        # 尝试从页面标题的其他位置获取
+        page_title = soup.find('h1', class_='firstHeading')
+        if page_title:
+            page_title_text = page_title.get_text().strip()
+            if page_title_text:
+                print(f"从页面标题提取: {page_title_text}")
+                return page_title_text
+        
+        print("警告: 无法提取网页标题")
         return "无标题"
     
     def _extract_description(self, soup: BeautifulSoup) -> str:
@@ -168,8 +183,13 @@ class WebScraper:
         for selector in content_selectors:
             main_content = soup.select_one(selector)
             if main_content:
-                print(f"找到内容容器: {selector}")
-                break
+                content_text = main_content.get_text().strip()
+                if content_text and len(content_text) > 50:  # 确保有足够的内容
+                    print(f"找到内容容器: {selector}, 内容长度: {len(content_text)}")
+                    break
+                else:
+                    print(f"找到容器但内容不足: {selector}, 内容长度: {len(content_text) if content_text else 0}")
+                    main_content = None
         
         # 如果没找到特定容器，尝试从body中提取
         if not main_content:

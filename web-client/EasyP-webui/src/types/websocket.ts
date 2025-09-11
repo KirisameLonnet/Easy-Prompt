@@ -158,6 +158,46 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'er
 // 应用状态
 export type AppState = 'initial' | 'chatting' | 'awaiting_confirmation' | 'generating_final_prompt' | 'completed' | 'error';
 
+// 评估数据类型
+export interface EvaluationData {
+  evaluationStatus: string;
+  showEvaluationCard: boolean;
+  extractedTraits: string[];
+  extractedKeywords: string[];
+  evaluationScore: number | null;
+  completenessData: {
+    core_identity: number;
+    personality_traits: number;
+    behavioral_patterns: number;
+    interaction_patterns: number;
+  };
+  evaluationSuggestions: string[];
+  finalPromptContent: string;
+  showPromptResult: boolean;
+  promptTimestamp: Date;
+}
+
+// 会话创建请求类型
+export interface SessionCreate {
+  name?: string;
+  api_config?: {
+    api_type: 'gemini' | 'openai';
+    api_key?: string;
+    base_url?: string;
+    model?: string;
+    evaluator_model?: string;
+    temperature?: number;
+    max_tokens?: number;
+    nsfw_mode?: boolean;
+  };
+}
+
+// 会话更新请求类型
+export interface SessionUpdate {
+  name?: string;
+  status?: 'active' | 'completed' | 'paused';
+}
+
 // 会话管理类型
 export interface Session {
   id: string;
@@ -167,4 +207,6 @@ export interface Session {
   status: 'active' | 'completed' | 'paused';
   lastMessage?: string;
   messages: ChatMessage[];
+  // 评估相关数据
+  evaluationData?: EvaluationData;
 }

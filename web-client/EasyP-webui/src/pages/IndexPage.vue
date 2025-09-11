@@ -324,18 +324,17 @@ const handleNewChat = (): void => {
 
 // 会话管理相关方法
 const handleSwitchSession = (sessionId: string): void => {
-  websocketService.switchToSession(sessionId);
+  void websocketService.switchToSession(sessionId);
   chatInput.value?.focusInput();
 };
 
 const handleCreateSession = (): void => {
-  websocketService.createNewSession();
-  websocketService.reset();
+  void websocketService.createNewSession();
   chatInput.value?.focusInput();
 };
 
 const handleDeleteSession = (sessionId: string): void => {
-  websocketService.deleteSession(sessionId);
+  void websocketService.deleteSession(sessionId);
 };
 
 // 增强评估卡片处理方法

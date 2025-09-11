@@ -1,6 +1,7 @@
 import asyncio
 import json
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from conversation_handler import ConversationHandler
 from profile_manager import ProfileManager
 from evaluator_service import EvaluatorService
@@ -9,6 +10,14 @@ import llm_helper
 import os
 from contextlib import asynccontextmanager
 from threading import Lock
+
+# 导入新的session管理模块
+from schemas import (
+    WebSocketMessage, UserResponse, UserConfirmation, ApiConfig, 
+    ApiConfigResult, EvaluationUpdate, ChatMessage, MessageType
+)
+from session_service import SessionService, get_session_service
+from session_routes import router as session_router
 
 # 添加API配置锁，确保多用户API配置不冲突
 api_config_lock = Lock()
@@ -32,16 +41,24 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Easy-Prompt API",
-    description="Interactive prompt generation via WebSocket.",
+    description="Interactive prompt generation via WebSocket and REST API.",
     version="1.0.0",
     lifespan=lifespan,
 )
 
-evaluator_service = EvaluatorService()
+# 添加CORS中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:9000", "http://127.0.0.1:9000"],  # 前端开发服务器地址
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# 移除全局的 API 配置，避免跨会话串扰
-# In-memory storage for active handlers
-active_handlers = {}
+# 注册session管理路由
+app.include_router(session_router)
+
+evaluator_service = EvaluatorService()
 
 async def send_json(websocket: WebSocket, message_type: str, payload: dict):
     """Utility to send a structured JSON message."""
@@ -147,7 +164,10 @@ def initialize_api(api_config: dict) -> bool:
 
 
 @app.websocket("/ws/prompt")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    session_service: SessionService = Depends(get_session_service)
+):
     """Handles WebSocket connections for interactive prompt generation."""
     await websocket.accept()
 
@@ -197,13 +217,22 @@ async def websocket_endpoint(websocket: WebSocket):
         existing_session_id = ProfileManager.find_existing_session()
         if existing_session_id:
             print(f"恢复现有session: {existing_session_id}")
-            handler = ConversationHandler(session_id=existing_session_id)
+            session = await session_service.get_session(existing_session_id)
+            if session:
+                handler = session_service.get_handler(existing_session_id)
+                if not handler:
+                    handler = session_service.create_handler(existing_session_id)
+                session_id = existing_session_id
+            else:
+                # 创建新session
+                session = await session_service.create_session()
+                handler = session_service.get_handler(session.id)
+                session_id = session.id
         else:
             print("创建新session")
-            handler = ConversationHandler()
-        
-        session_id = handler.profile_manager.session_id
-        active_handlers[session_id] = handler
+            session = await session_service.create_session()
+            handler = session_service.get_handler(session.id)
+            session_id = session.id
 
         # 3. Send initial greeting
         await send_json(websocket, "system_message", {"message": lang_manager.t("AI_PROMPT")})
@@ -266,9 +295,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         "message": f"API已重新配置: {current_api_config['api_type']}"
                     })
                     # Reset handler with new API
-                    handler = ConversationHandler()
-                    session_id = handler.profile_manager.session_id
-                    active_handlers[session_id] = handler
+                    handler = session_service.create_handler(session_id)
                 else:
                     await send_json(websocket, "api_config_result", {
                         "success": False,
@@ -277,6 +304,16 @@ async def websocket_endpoint(websocket: WebSocket):
 
             elif message_type == "user_response":
                 await send_json(websocket, "system_message", {"message": lang_manager.t("YOU_PROMPT")})
+                
+                # 添加用户消息到session
+                user_message = ChatMessage(
+                    id=f"msg_{int(asyncio.get_event_loop().time() * 1000)}",
+                    type=MessageType.USER,
+                    content=payload.get("answer", ""),
+                    is_complete=True
+                )
+                await session_service.add_message_to_session(session_id, user_message)
+                
                 response_generator = handler.handle_message(payload.get("answer", ""))
 
                 for chunk in response_generator:
@@ -346,8 +383,9 @@ async def websocket_endpoint(websocket: WebSocket):
         except:
             pass  # Ignore errors if the socket is already closed
     finally:
-        active_handlers.pop(session_id, None)
-        print(f"Cleaned up session: {session_id}")
+        if session_id:
+            session_service.remove_handler(session_id)
+            print(f"Cleaned up session: {session_id}")
 
 
 @app.get("/")

@@ -179,7 +179,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import type { Session, ChatMessage } from 'src/types/websocket';
+import type { Session } from 'src/types/websocket';
+import { websocketService } from 'src/services/websocket';
 
 interface Props {
   show: boolean;
@@ -208,70 +209,48 @@ const previewSessionData = ref<Session | null>(null);
 const currentSessionId = computed(() => props.currentSessionId);
 
 // 方法
-const loadSessions = (): void => {
-  const savedSessions = localStorage.getItem('easy_prompt_sessions');
-  if (savedSessions) {
-    try {
-      const parsedSessions = JSON.parse(savedSessions);
-      sessions.value = parsedSessions.map((session: Session) => ({
-        ...session,
-        createdAt: new Date(session.createdAt),
-        messages: session.messages?.map((msg: ChatMessage) => ({
-          ...msg,
-          timestamp: new Date(msg.timestamp)
-        })) || []
-      }));
-    } catch (error) {
-      console.error('加载会话失败:', error);
-      sessions.value = [];
-    }
+const loadSessions = async (): Promise<void> => {
+  try {
+    const loadedSessions = await websocketService.getSessions();
+    sessions.value = loadedSessions;
+  } catch (error) {
+    console.error('加载会话失败:', error);
+    sessions.value = [];
   }
 };
 
-const saveSessions = (): void => {
-  localStorage.setItem('easy_prompt_sessions', JSON.stringify(sessions.value));
-};
-
-const createNewSession = (): void => {
-  const now = new Date();
-  const sessionId = `session_${now.getTime()}`;
-  const sessionName = `会话 ${formatDate(now)} ${formatTime(now)}`;
-
-  const newSession: Session = {
-    id: sessionId,
-    name: sessionName,
-    createdAt: now,
-    messageCount: 0,
-    status: 'active',
-    messages: []
-  };
-
-  sessions.value.unshift(newSession);
-  saveSessions();
-  emit('create-session');
-  emit('close');
+const createNewSession = async (): Promise<void> => {
+  try {
+    await websocketService.createNewSession();
+    await loadSessions(); // 重新加载会话列表
+    emit('create-session');
+    emit('close');
+  } catch (error) {
+    console.error('创建会话失败:', error);
+  }
 };
 
 const selectSession = (session: Session): void => {
   selectedSession.value = session;
 };
 
-const switchToSession = (session: Session): void => {
-  emit('switch-session', session.id);
-  emit('close');
+const switchToSession = async (session: Session): Promise<void> => {
+  try {
+    await websocketService.switchToSession(session.id);
+    emit('switch-session', session.id);
+    emit('close');
+  } catch (error) {
+    console.error('切换会话失败:', error);
+  }
 };
 
-const deleteSession = (session: Session): void => {
-  const index = sessions.value.findIndex(s => s.id === session.id);
-  if (index > -1) {
-    sessions.value.splice(index, 1);
-    saveSessions();
-
-    if (selectedSession.value?.id === session.id) {
-      selectedSession.value = null;
-    }
-
-    emit('delete-session', session.id);
+const deleteSession = async (session: Session): Promise<void> => {
+  try {
+    await websocketService.deleteSession(session.id);
+    await loadSessions(); // 重新加载会话列表
+    emit('close');
+  } catch (error) {
+    console.error('删除会话失败:', error);
   }
 };
 
@@ -324,7 +303,7 @@ const getStatusColor = (session: Session): string => {
 };
 
 const getMessageIcon = (type: string): string => {
-  const iconMap = {
+  const iconMap: Record<string, string> = {
     'user': 'person',
     'ai': 'smart_toy',
     'system': 'settings',
@@ -354,8 +333,8 @@ const getMessageTypeName = (type: string): string => {
 };
 
 // 生命周期
-onMounted(() => {
-  loadSessions();
+onMounted(async () => {
+  await loadSessions();
 });
 </script>
 

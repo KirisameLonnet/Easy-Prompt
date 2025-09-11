@@ -18,6 +18,7 @@ import {
   isErrorMessage,
   isApiConfigResult
 } from 'src/types/websocket';
+import { apiService } from './api';
 
 // API配置类型
 export interface ApiConfig {
@@ -218,13 +219,13 @@ class WebSocketService {
   private setupEventListeners(): void {
     if (!this.ws) return;
 
-    this.ws.onopen = () => {
+    this.ws.onopen = async () => {
       console.log('WebSocket connected');
       this.connectionStatus.value = 'connected';
       this.reconnectAttempts = 0;
 
       // 在连接建立后，根据配置初始化会话
-      this.initializeSession();
+      await this.initializeSession();
     };
 
     this.ws.onclose = (event) => {
@@ -270,19 +271,9 @@ class WebSocketService {
   }
 
   // 初始化会话
-  private initializeSession(): void {
+  private async initializeSession(): Promise<void> {
     // 加载会话列表
-    this.loadSessions();
-
-    // 检查是否有保存的session ID
-    const savedSessionId = this.loadSessionId();
-    if (savedSessionId) {
-      this.currentSessionId.value = savedSessionId;
-      this.log('🔄 检测到保存的session，尝试恢复', savedSessionId);
-    } else {
-      // 如果没有保存的session，创建新会话
-      this.createNewSession();
-    }
+    await this.loadSessions();
 
     // 加载保存的API配置
     const savedConfig = this.loadApiConfig();
@@ -349,31 +340,6 @@ class WebSocketService {
 
   private handleSystemMessage(message: string): void {
     console.log('📝 系统消息:', message);
-
-    // 检查是否是session恢复相关的消息
-    if (message.includes('恢复现有session') || message.includes('创建新session')) {
-      this.log('🔄 检测到session状态消息', message);
-      // 如果是恢复的session，标记为已恢复
-      if (message.includes('恢复现有session')) {
-        this.markSessionRestored();
-      }
-    }
-
-    // 检查是否是链接处理相关的消息
-    if (message.includes('🔗 检测到链接') || message.includes('📄 网页标题') || message.includes('📝 网页描述') || message.includes('❌ 网页抓取失败')) {
-      this.log('🌐 检测到链接处理消息', message);
-      // 将链接处理消息添加到聊天记录
-      const chatMessage: ChatMessage = {
-        id: this.generateId(),
-        type: 'system',
-        content: message,
-        timestamp: new Date(),
-        isComplete: true
-      };
-      this.chatMessages.value.push(chatMessage);
-      console.log('✅ 添加链接处理消息到聊天记录');
-      return;
-    }
 
     // 只有真正的系统提示才添加到聊天记录，跳过所有技术标识
     if (this.isValidChatSystemMessage(message)) {
@@ -450,12 +416,7 @@ class WebSocketService {
         appendedChunk: chunk
       });
     }
-
-    // 更新当前会话
-    this.updateCurrentSession();
-  }
-
-  private handleEvaluationUpdate(payload: {
+  }  private handleEvaluationUpdate(payload: {
     message: string;
     extracted_traits?: string[];
     extracted_keywords?: string[];
@@ -542,6 +503,9 @@ class WebSocketService {
       }, 3000);
     }
 
+    // 更新当前会话的评估数据
+    void this.updateCurrentSession();
+
     this.log('📊 更新评估状态完成', payload.message);
   }
 
@@ -572,6 +536,9 @@ class WebSocketService {
     this.appState.value = 'completed';
     this.promptTimestamp.value = new Date();
     this.showPromptResult.value = true;
+
+    // 保存最终状态到当前会话
+    void this.updateCurrentSession();
 
     // 延迟关闭连接
     setTimeout(() => {
@@ -632,110 +599,6 @@ class WebSocketService {
   private markSessionRestored(): void {
     this.sessionRestored.value = true;
     this.log('✅ 标记session已恢复');
-  }
-
-  // 会话管理方法
-  getSessions(): Session[] {
-    return this.sessions.value;
-  }
-
-  getCurrentSessionId(): string | null {
-    return this.currentSessionId.value;
-  }
-
-  createNewSession(): void {
-    const now = new Date();
-    const sessionId = `session_${now.getTime()}`;
-    const sessionName = `会话 ${this.formatDate(now)} ${this.formatTime(now)}`;
-
-    const newSession = {
-      id: sessionId,
-      name: sessionName,
-      createdAt: now,
-      messageCount: 0,
-      status: 'active',
-      messages: []
-    };
-
-    this.sessions.value.unshift(newSession);
-    this.currentSessionId.value = sessionId;
-    this.saveSessions();
-    this.log('🆕 创建新会话', newSession);
-  }
-
-  switchToSession(sessionId: string): void {
-    const session = this.sessions.value.find(s => s.id === sessionId);
-    if (session) {
-      this.currentSessionId.value = sessionId;
-      this.chatMessages.value = session.messages || [];
-      this.log('🔄 切换到会话', session);
-    }
-  }
-
-  deleteSession(sessionId: string): void {
-    const index = this.sessions.value.findIndex(s => s.id === sessionId);
-    if (index > -1) {
-      this.sessions.value.splice(index, 1);
-      this.saveSessions();
-      this.log('🗑️ 删除会话', sessionId);
-
-      // 如果删除的是当前会话，重置状态
-      if (this.currentSessionId.value === sessionId) {
-        this.reset();
-      }
-    }
-  }
-
-  private saveSessions(): void {
-    localStorage.setItem('easy_prompt_sessions', JSON.stringify(this.sessions.value));
-  }
-
-  private loadSessions(): void {
-    const savedSessions = localStorage.getItem('easy_prompt_sessions');
-    if (savedSessions) {
-      try {
-        const parsedSessions = JSON.parse(savedSessions);
-        this.sessions.value = parsedSessions.map((session: Session) => ({
-          ...session,
-          createdAt: new Date(session.createdAt),
-          messages: session.messages?.map((msg: ChatMessage) => ({
-            ...msg,
-            timestamp: new Date(msg.timestamp)
-          })) || []
-        }));
-        this.log('📂 加载会话列表', this.sessions.value);
-      } catch (error) {
-        this.log('❌ 加载会话失败', error);
-        this.sessions.value = [];
-      }
-    }
-  }
-
-  private updateCurrentSession(): void {
-    if (this.currentSessionId.value) {
-      const session = this.sessions.value.find(s => s.id === this.currentSessionId.value);
-      if (session) {
-        session.messages = this.chatMessages.value;
-        session.messageCount = this.chatMessages.value.length;
-        session.lastMessage = this.chatMessages.value[this.chatMessages.value.length - 1]?.content || '';
-        this.saveSessions();
-      }
-    }
-  }
-
-  private formatDate(date: Date): string {
-    return date.toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    });
-  }
-
-  private formatTime(date: Date): string {
-    return date.toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
   }
 
   // 公共方法：发送用户消息
@@ -814,16 +677,22 @@ class WebSocketService {
     this.evaluationStatus.value = '';
     this.showEvaluationCard.value = false;
     this.extractedTraits.value = [];
+    this.extractedKeywords.value = [];
+    this.evaluationScore.value = null;
+    this.completenessData.value = {
+      core_identity: 0,
+      personality_traits: 0,
+      behavioral_patterns: 0,
+      interaction_patterns: 0
+    };
+    this.evaluationSuggestions.value = [];
     this.finalPromptContent.value = '';
     this.showPromptResult.value = false;
+    this.promptTimestamp.value = new Date();
     this.pendingConfirmation.value = '';
     this.currentAIMessage.value = null;
     this.currentFinalPrompt.value = null;
     this.appState.value = 'initial';
-
-    // 清除session相关状态
-    this.clearSessionId();
-    this.sessionRestored.value = false;
   }
 
   // 处理API配置结果
@@ -857,6 +726,202 @@ class WebSocketService {
       config: this.apiConfig.value
     };
   }
+
+  // Session管理相关方法
+  async getSessions(): Promise<Session[]> {
+    try {
+      const sessions = await apiService.getAllSessions();
+      this.sessions.value = sessions;
+      return sessions;
+    } catch (error) {
+      this.log('❌ 获取会话列表失败', error);
+      return this.sessions.value;
+    }
+  }
+
+  getCurrentSessionId(): string | null {
+    return this.currentSessionId.value;
+  }
+
+  async createNewSession(): Promise<void> {
+    try {
+      const now = new Date();
+      const sessionName = `会话 ${this.formatDate(now)} ${this.formatTime(now)}`;
+
+      // 重置所有评估状态
+      this.evaluationStatus.value = '';
+      this.showEvaluationCard.value = false;
+      this.extractedTraits.value = [];
+      this.extractedKeywords.value = [];
+      this.evaluationScore.value = null;
+      this.completenessData.value = {
+        core_identity: 0,
+        personality_traits: 0,
+        behavioral_patterns: 0,
+        interaction_patterns: 0
+      };
+      this.evaluationSuggestions.value = [];
+      this.finalPromptContent.value = '';
+      this.showPromptResult.value = false;
+      this.promptTimestamp.value = new Date();
+      this.chatMessages.value = [];
+      this.pendingConfirmation.value = '';
+      this.currentAIMessage.value = null;
+      this.currentFinalPrompt.value = null;
+      this.appState.value = 'initial';
+
+      const newSession = await apiService.createSession({
+        name: sessionName
+      });
+
+      this.sessions.value.unshift(newSession);
+      this.currentSessionId.value = newSession.id;
+      this.log('🆕 创建新会话', newSession);
+    } catch (error) {
+      this.log('❌ 创建会话失败', error);
+    }
+  }
+
+  async switchToSession(sessionId: string): Promise<void> {
+    try {
+      const session = await apiService.getSession(sessionId);
+      this.currentSessionId.value = sessionId;
+      this.chatMessages.value = session.messages || [];
+
+      // 恢复评估数据
+      if (session.evaluationData) {
+        this.evaluationStatus.value = session.evaluationData.evaluationStatus || '';
+        this.showEvaluationCard.value = session.evaluationData.showEvaluationCard || false;
+        this.extractedTraits.value = session.evaluationData.extractedTraits || [];
+        this.extractedKeywords.value = session.evaluationData.extractedKeywords || [];
+        this.evaluationScore.value = session.evaluationData.evaluationScore || null;
+        this.completenessData.value = session.evaluationData.completenessData || {
+          core_identity: 0,
+          personality_traits: 0,
+          behavioral_patterns: 0,
+          interaction_patterns: 0
+        };
+        this.evaluationSuggestions.value = session.evaluationData.evaluationSuggestions || [];
+        this.finalPromptContent.value = session.evaluationData.finalPromptContent || '';
+        this.showPromptResult.value = session.evaluationData.showPromptResult || false;
+        this.promptTimestamp.value = session.evaluationData.promptTimestamp ? new Date(session.evaluationData.promptTimestamp) : new Date();
+
+        this.log('🔄 恢复评估数据', {
+          evaluationStatus: this.evaluationStatus.value,
+          showEvaluationCard: this.showEvaluationCard.value,
+          extractedTraits: this.extractedTraits.value,
+          extractedKeywords: this.extractedKeywords.value,
+          evaluationScore: this.evaluationScore.value,
+          completenessData: this.completenessData.value,
+          showPromptResult: this.showPromptResult.value
+        });
+      } else {
+        // 如果没有评估数据，清空相关状态
+        this.evaluationStatus.value = '';
+        this.showEvaluationCard.value = false;
+        this.extractedTraits.value = [];
+        this.extractedKeywords.value = [];
+        this.evaluationScore.value = null;
+        this.completenessData.value = {
+          core_identity: 0,
+          personality_traits: 0,
+          behavioral_patterns: 0,
+          interaction_patterns: 0
+        };
+        this.evaluationSuggestions.value = [];
+        this.finalPromptContent.value = '';
+        this.showPromptResult.value = false;
+        this.promptTimestamp.value = new Date();
+      }
+
+      this.log('🔄 切换到会话', session);
+    } catch (error) {
+      this.log('❌ 切换会话失败', error);
+    }
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    try {
+      await apiService.deleteSession(sessionId);
+      const index = this.sessions.value.findIndex(s => s.id === sessionId);
+      if (index > -1) {
+        this.sessions.value.splice(index, 1);
+        this.log('🗑️ 删除会话', sessionId);
+
+        // 如果删除的是当前会话，重置状态
+        if (this.currentSessionId.value === sessionId) {
+          this.reset();
+        }
+      }
+    } catch (error) {
+      this.log('❌ 删除会话失败', error);
+    }
+  }
+
+  private async saveSessions(): Promise<void> {
+    // 现在使用API保存，不再使用localStorage
+    try {
+      await this.getSessions();
+    } catch (error) {
+      this.log('❌ 保存会话失败', error);
+    }
+  }
+
+  private async loadSessions(): Promise<void> {
+    try {
+      await this.getSessions();
+      this.log('📂 加载会话列表', this.sessions.value);
+    } catch (error) {
+      this.log('❌ 加载会话失败', error);
+      this.sessions.value = [];
+    }
+  }
+
+  private async updateCurrentSession(): Promise<void> {
+    if (this.currentSessionId.value) {
+      try {
+        // 更新消息
+        const lastMessage = this.chatMessages.value[this.chatMessages.value.length - 1];
+        if (lastMessage) {
+          await apiService.addMessageToSession(this.currentSessionId.value, lastMessage);
+        }
+
+        // 更新评估数据
+        const evaluationData = {
+          evaluationStatus: this.evaluationStatus.value,
+          showEvaluationCard: this.showEvaluationCard.value,
+          extractedTraits: this.extractedTraits.value,
+          extractedKeywords: this.extractedKeywords.value,
+          evaluationScore: this.evaluationScore.value,
+          completenessData: this.completenessData.value,
+          evaluationSuggestions: this.evaluationSuggestions.value,
+          finalPromptContent: this.finalPromptContent.value,
+          showPromptResult: this.showPromptResult.value,
+          promptTimestamp: this.promptTimestamp.value
+        };
+
+        await apiService.updateSessionEvaluation(this.currentSessionId.value, evaluationData);
+      } catch (error) {
+        this.log('❌ 更新会话失败', error);
+      }
+    }
+  }
+
+  private formatDate(date: Date): string {
+    return date.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+  }
+
+  private formatTime(date: Date): string {
+    return date.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+
 }
 
 export const websocketService = new WebSocketService();
