@@ -5,8 +5,11 @@ OpenAI格式API支持模块
 import os
 import json
 import requests
+import time
 from typing import Dict, Generator, Optional, Any
 from language_manager import lang_manager
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # --- 全局配置 ---
 openai_config = {
@@ -52,16 +55,63 @@ def is_openai_configured() -> bool:
         openai_config["model"]
     ])
 
+def test_api_connection() -> bool:
+    """测试API连接是否正常"""
+    if not is_openai_configured():
+        print("❌ API未配置")
+        return False
+    
+    try:
+        print(f"🔍 测试API连接: {openai_config['base_url']}")
+        
+        # 发送一个简单的测试请求
+        test_messages = [
+            {"role": "user", "content": "Hello"}
+        ]
+        
+        response = _make_openai_request(test_messages, stream=False)
+        
+        if response.status_code == 200:
+            print("✅ API连接正常")
+            return True
+        else:
+            print(f"❌ API返回错误状态码: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ API连接测试失败: {str(e)}")
+        return False
+
+def _create_session_with_retry():
+    """创建带有重试机制的requests session"""
+    session = requests.Session()
+    
+    # 配置重试策略
+    retry_strategy = Retry(
+        total=3,  # 总重试次数
+        backoff_factor=1,  # 重试间隔倍数
+        status_forcelist=[429, 500, 502, 503, 504],  # 需要重试的HTTP状态码
+        allowed_methods=["POST"]  # 允许重试的方法
+    )
+    
+    # 创建适配器
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    
+    return session
+
 def _make_openai_request(messages: list, stream: bool = False) -> dict:
     """
-    发送OpenAI格式的API请求
+    发送OpenAI格式的API请求，带重试机制
     """
     if not is_openai_configured():
         raise ValueError("OpenAI API未配置")
     
     headers = {
         "Authorization": f"Bearer {openai_config['api_key']}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": "EasyPrompt/1.0"
     }
     
     payload = {
@@ -91,9 +141,15 @@ def _make_openai_request(messages: list, stream: bool = False) -> dict:
     
     url = f"{openai_config['base_url']}/chat/completions"
     
+    # 使用重试机制
+    session = _create_session_with_retry()
+    
     try:
+        print(f"正在发送API请求到: {url}")
+        print(f"使用模型: {openai_config['model']}")
+        
         if stream:
-            response = requests.post(
+            response = session.post(
                 url, 
                 headers=headers, 
                 json=payload, 
@@ -101,7 +157,7 @@ def _make_openai_request(messages: list, stream: bool = False) -> dict:
                 timeout=openai_config["timeout"]
             )
         else:
-            response = requests.post(
+            response = session.post(
                 url, 
                 headers=headers, 
                 json=payload, 
@@ -111,8 +167,30 @@ def _make_openai_request(messages: list, stream: bool = False) -> dict:
         response.raise_for_status()
         return response
         
+    except requests.exceptions.ConnectTimeout as e:
+        error_msg = f"API连接超时: {openai_config['base_url']} - {str(e)}"
+        print(f"❌ {error_msg}")
+        raise Exception(error_msg)
+    except requests.exceptions.ReadTimeout as e:
+        error_msg = f"API读取超时: {openai_config['base_url']} - {str(e)}"
+        print(f"❌ {error_msg}")
+        raise Exception(error_msg)
+    except requests.exceptions.ConnectionError as e:
+        error_msg = f"API连接错误: {openai_config['base_url']} - {str(e)}"
+        print(f"❌ {error_msg}")
+        raise Exception(error_msg)
+    except requests.exceptions.HTTPError as e:
+        error_msg = f"API HTTP错误: {e.response.status_code} - {str(e)}"
+        print(f"❌ {error_msg}")
+        raise Exception(error_msg)
     except requests.exceptions.RequestException as e:
-        raise Exception(f"OpenAI API请求失败: {str(e)}")
+        error_msg = f"API请求失败: {openai_config['base_url']} - {str(e)}"
+        print(f"❌ {error_msg}")
+        raise Exception(error_msg)
+    except Exception as e:
+        error_msg = f"未知错误: {str(e)}"
+        print(f"❌ {error_msg}")
+        raise Exception(error_msg)
 
 def get_openai_conversation_response_stream(chat_history: list, user_message: str, critique: str):
     """

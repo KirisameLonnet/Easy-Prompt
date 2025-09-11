@@ -6,3 +6,5 @@ prompt-toolkit
 watchdog
 websockets
 requests
+beautifulsoup4
+lxml

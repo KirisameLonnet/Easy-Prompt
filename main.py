@@ -2,6 +2,7 @@ import asyncio
 import json
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from conversation_handler import ConversationHandler
+from profile_manager import ProfileManager
 from evaluator_service import EvaluatorService
 from language_manager import lang_manager
 import llm_helper
@@ -192,7 +193,15 @@ async def websocket_endpoint(websocket: WebSocket):
                     # 继续等待客户端发送 api_config
 
         # 2. Create conversation handler after API is initialized
-        handler = ConversationHandler()
+        # 尝试恢复现有session，如果没有则创建新的
+        existing_session_id = ProfileManager.find_existing_session()
+        if existing_session_id:
+            print(f"恢复现有session: {existing_session_id}")
+            handler = ConversationHandler(session_id=existing_session_id)
+        else:
+            print("创建新session")
+            handler = ConversationHandler()
+        
         session_id = handler.profile_manager.session_id
         active_handlers[session_id] = handler
 
