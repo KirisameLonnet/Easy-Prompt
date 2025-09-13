@@ -14,8 +14,8 @@ from urllib3.util.retry import Retry
 # --- 全局配置 ---
 openai_config = {
     "api_key": None,
-    "base_url": "https://api.deepseek.com/v1",  # 默认使用DeepSeek
-    "model": "deepseek-chat",  # 默认使用DeepSeek Chat模型
+    "base_url": "",  # 必须由用户配置
+    "model": "",  # 必须由用户配置
     "temperature": 0.7,
     "max_tokens": 4000,
     "timeout": 30,

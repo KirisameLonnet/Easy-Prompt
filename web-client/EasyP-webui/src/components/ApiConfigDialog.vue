@@ -7,7 +7,7 @@
           API 配置
         </div>
         <div class="text-caption">
-          配置后端API服务提供商
+          配置后端API服务提供商 - 所有字段都是必填的
         </div>
       </q-card-section>
 
@@ -267,13 +267,14 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   initialConfig: () => ({
-    api_type: 'openai',  // 默认使用OpenAI格式
+    api_type: 'openai',
     api_key: '',
-    base_url: 'https://api.deepseek.com/v1',  // 默认使用DeepSeek
-    model: 'deepseek-chat',  // 默认使用DeepSeek Chat模型
+    base_url: '',
+    model: '',
+    evaluator_model: '',
     temperature: 0.7,
     max_tokens: 4000,
-    nsfw_mode: false  // 默认关闭R18内容
+    nsfw_mode: false
   })
 });
 
@@ -321,13 +322,13 @@ function onApiTypeChange() {
     // Reset OpenAI fields when switching to Gemini
     localConfig.value.api_key = '';
     localConfig.value.base_url = '';
-    localConfig.value.model = 'gemini-2.5-flash';
+    localConfig.value.model = '';
     localConfig.value.evaluator_model = '';
   } else if (localConfig.value.api_type === 'openai') {
-    // Reset to OpenAI defaults
+    // Reset to empty OpenAI config - user must fill all fields
     localConfig.value.api_key = '';
-    localConfig.value.base_url = 'https://api.deepseek.com/v1';
-    localConfig.value.model = 'deepseek-chat';
+    localConfig.value.base_url = '';
+    localConfig.value.model = '';
     localConfig.value.evaluator_model = '';
   }
 }

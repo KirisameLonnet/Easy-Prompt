@@ -19,6 +19,16 @@ from schemas import (
 from session_service import SessionService, get_session_service
 from session_routes import router as session_router
 
+# 导入认证模块
+from auth_routes import router as auth_router
+from user_config_routes import router as user_config_router
+from jwt_auth import get_current_active_user
+from user_database import get_user_database
+
+# 导入Supabase认证模块
+from supabase_routes import router as supabase_router
+from supabase_auth import get_current_user as get_supabase_user
+
 # 添加API配置锁，确保多用户API配置不冲突
 api_config_lock = Lock()
 
@@ -49,14 +59,27 @@ app = FastAPI(
 # 添加CORS中间件
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:9000", "http://127.0.0.1:9000"],  # 前端开发服务器地址
+    allow_origins=[
+        "http://localhost:9000", 
+        "http://127.0.0.1:9000",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ],  # 前端开发服务器地址
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
 # 注册session管理路由
+# 注册路由
 app.include_router(session_router)
+app.include_router(auth_router)
+app.include_router(user_config_router)
+app.include_router(supabase_router)  # 新增Supabase路由
 
 evaluator_service = EvaluatorService()
 
@@ -72,42 +95,18 @@ def _str2bool(v: str | None, default: bool = False) -> bool:
     return v.strip().lower() in ("1", "true", "yes", "on")
 
 
-def get_default_api_config() -> dict:
-    """Detect default API configuration from environment.
-    优先使用 OpenAI 兼容模式（如 DeepSeek），否则退回 Gemini；若均未配置，则返回空配置。
-    支持的变量：
-      - OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL, OPENAI_TEMPERATURE, OPENAI_MAX_TOKENS, NSFW_MODE
-      - GOOGLE_API_KEY, GEMINI_MODEL, EVALUATOR_MODEL
-    """
-    openai_key = os.getenv("OPENAI_API_KEY")
-    gemini_key = os.getenv("GOOGLE_API_KEY")
-    nsfw_env = os.getenv("NSFW_MODE")
-    nsfw_mode = _str2bool(nsfw_env, False)
-
-    if openai_key:
-        return {
-            "api_type": "openai",
-            "api_key": openai_key,
-            "base_url": os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1").rstrip('/'),
-            "model": os.getenv("OPENAI_MODEL", "deepseek-chat"),
-            "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0.7")),
-            "max_tokens": int(os.getenv("OPENAI_MAX_TOKENS", "4000")),
-            "nsfw_mode": nsfw_mode,
-        }
-
-    if gemini_key:
-        return {
-            "api_type": "gemini",
-            "api_key": gemini_key,
-            "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-            "evaluator_model": os.getenv("EVALUATOR_MODEL", ""),
-            "temperature": float(os.getenv("GEMINI_TEMPERATURE", "0.7")),
-            "max_tokens": int(os.getenv("GEMINI_MAX_TOKENS", "4000")),
-            "nsfw_mode": nsfw_mode,
-        }
-
-    # 未配置任一提供商，返回默认 OpenAI 空配置
-    return {"api_type": "openai", "nsfw_mode": nsfw_mode}
+def get_empty_api_config() -> dict:
+    """返回空的API配置，要求用户必须手动配置"""
+    return {
+        "api_type": "openai",
+        "api_key": "",
+        "base_url": "",
+        "model": "",
+        "evaluator_model": "",
+        "temperature": 0.7,
+        "max_tokens": 4000,
+        "nsfw_mode": False
+    }
 
 
 def initialize_api(api_config: dict) -> bool:
@@ -116,15 +115,14 @@ def initialize_api(api_config: dict) -> bool:
         try:
             nsfw_mode = api_config.get("nsfw_mode", False)
             if api_config.get("api_type") == "openai":
-                # 允许从环境变量补齐缺失字段
-                api_key = api_config.get("api_key") or os.getenv("OPENAI_API_KEY")
-                base_url = api_config.get("base_url") or os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
-                model = api_config.get("model") or os.getenv("OPENAI_MODEL", "deepseek-chat")
-                temperature = api_config.get("temperature", float(os.getenv("OPENAI_TEMPERATURE", "0.7")))
-                max_tokens = api_config.get("max_tokens", int(os.getenv("OPENAI_MAX_TOKENS", "4000")))
+                api_key = api_config.get("api_key", "")
+                base_url = api_config.get("base_url", "")
+                model = api_config.get("model", "")
+                temperature = api_config.get("temperature", 0.7)
+                max_tokens = api_config.get("max_tokens", 4000)
 
-                if not api_key:
-                    print("错误: OpenAI API配置缺少参数: api_key")
+                if not api_key or not base_url or not model:
+                    print("错误: OpenAI API配置不完整，缺少必要参数")
                     return False
 
                 return llm_helper.init_llm(
@@ -137,14 +135,13 @@ def initialize_api(api_config: dict) -> bool:
                     max_tokens=max_tokens,
                 )
             elif api_config.get("api_type") == "gemini":
-                # 允许从环境变量补齐缺失字段
-                api_key = api_config.get("api_key") or os.getenv("GOOGLE_API_KEY")
-                model = api_config.get("model") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-                evaluator_model = api_config.get("evaluator_model") or os.getenv("EVALUATOR_MODEL", "")
-                temperature = api_config.get("temperature", float(os.getenv("GEMINI_TEMPERATURE", "0.7")))
+                api_key = api_config.get("api_key", "")
+                model = api_config.get("model", "")
+                evaluator_model = api_config.get("evaluator_model", "")
+                temperature = api_config.get("temperature", 0.7)
 
-                if not api_key:
-                    print("错误: Gemini API配置缺少参数: api_key")
+                if not api_key or not model:
+                    print("错误: Gemini API配置不完整，缺少必要参数")
                     return False
 
                 return llm_helper.init_llm(
@@ -174,12 +171,12 @@ async def websocket_endpoint(
     handler = None
     session_id = None
     api_initialized = False
+    current_user = None
     # 将 API 配置限定为当前连接会话的本地变量，避免跨连接污染
-    # 默认根据环境自动选择（优先 OpenAI 兼容）
-    current_api_config = get_default_api_config()
+    current_api_config = get_empty_api_config()
 
     try:
-        # 1. 等待 API 配置（若客户端提供），否则使用环境默认配置启动
+        # 1. 等待用户认证和API配置
         while not api_initialized:
             raw_data = await websocket.receive_text()
             data = json.loads(raw_data)
@@ -187,12 +184,78 @@ async def websocket_endpoint(
             message_type = data.get("type")
             payload = data.get("payload", {})
 
-            if message_type == "api_config":
-                # Client is configuring API for THIS websocket only
+            if message_type == "auth":
+                # 用户认证
+                token = payload.get("token")
+                if not token:
+                    await send_json(websocket, "auth_result", {
+                        "success": False,
+                        "message": "缺少认证令牌"
+                    })
+                    continue
+                
+                # 验证令牌
+                from jwt_auth import verify_token
+                token_data = verify_token(token)
+                if not token_data:
+                    await send_json(websocket, "auth_result", {
+                        "success": False,
+                        "message": "认证令牌无效"
+                    })
+                    continue
+                
+                # 获取用户信息
+                user_db = get_user_database()
+                current_user = user_db.get_user_by_id(token_data.user_id)
+                if not current_user:
+                    await send_json(websocket, "auth_result", {
+                        "success": False,
+                        "message": "用户不存在"
+                    })
+                    continue
+                
+                await send_json(websocket, "auth_result", {
+                    "success": True,
+                    "message": f"认证成功，欢迎 {current_user.username}",
+                    "user": {
+                        "id": current_user.id,
+                        "username": current_user.username,
+                        "role": current_user.role
+                    }
+                })
+                
+                # 尝试加载用户的API配置
+                user_api_config = user_db.get_user_api_config(current_user.id)
+                if user_api_config:
+                    current_api_config.update(user_api_config)
+                    if initialize_api(current_api_config):
+                        await send_json(websocket, "api_config_result", {
+                            "success": True,
+                            "message": f"已加载保存的API配置: {current_api_config['api_type']}"
+                        })
+                        api_initialized = True
+                    else:
+                        await send_json(websocket, "api_config_result", {
+                            "success": False,
+                            "message": "保存的API配置无效，请重新配置"
+                        })
+
+            elif message_type == "api_config":
+                # 客户端配置API
+                if not current_user:
+                    await send_json(websocket, "error", {
+                        "message": "请先进行用户认证"
+                    })
+                    continue
+                
                 current_api_config.update(payload)
 
                 # Initialize API with new configuration
                 if initialize_api(current_api_config):
+                    # 保存用户的API配置
+                    user_db = get_user_database()
+                    user_db.save_api_config(current_user.id, current_api_config)
+                    
                     await send_json(websocket, "api_config_result", {
                         "success": True,
                         "message": f"API已配置: {current_api_config['api_type']}"
@@ -205,12 +268,16 @@ async def websocket_endpoint(
                     })
 
             elif message_type == "start_session":
-                # 使用环境默认配置启动（优先 OpenAI）
-                if initialize_api(current_api_config):
-                    api_initialized = True
+                # 要求用户必须先认证和配置API
+                if not current_user:
+                    await send_json(websocket, "error", {
+                        "message": "请先进行用户认证"
+                    })
                 else:
-                    await send_json(websocket, "error", {"message": "默认API初始化失败，请在设置中配置API"})
-                    # 继续等待客户端发送 api_config
+                    await send_json(websocket, "error", {
+                        "message": "请先配置API，点击设置按钮进行配置"
+                    })
+                # 继续等待客户端发送认证或配置
 
         # 2. Create conversation handler after API is initialized
         # 尝试恢复现有session，如果没有则创建新的
@@ -395,34 +462,21 @@ async def read_root():
 
 @app.get("/api/status")
 async def get_api_status():
-    """Get generic API configuration status (no per-session state)."""
-    from openai_helper import get_openai_config, is_openai_configured
-    from gemini_helper import get_gemini_config, is_gemini_configured
-
-    openai_env = bool(os.getenv("OPENAI_API_KEY"))
-    gemini_env = bool(os.getenv("GOOGLE_API_KEY"))
-    default_cfg = get_default_api_config()
-    
-    can_auto_start = False
-    if default_cfg.get("api_type") == "openai" and (default_cfg.get("api_key") or is_openai_configured() or openai_env):
-        can_auto_start = True
-    if default_cfg.get("api_type") == "gemini" and (default_cfg.get("api_key") or is_gemini_configured() or gemini_env):
-        can_auto_start = True
-
+    """Get API configuration status - 不再支持自动配置"""
     status = {
         "supports": ["gemini", "openai"],
-        "gemini_configured": bool(is_gemini_configured() or gemini_env),
-        "openai_configured": bool(is_openai_configured() or openai_env),
-        "gemini_config": {},
-        "openai_config": {},
-        "default_api_type": default_cfg.get("api_type"),
-        "can_start_without_client_config": can_auto_start,
+        "requires_manual_config": True,
+        "message": "请在前端配置API密钥和模型信息"
     }
-
-    if status["gemini_configured"]:
-        status["gemini_config"] = get_gemini_config()
-    
-    if status["openai_configured"]:
-        status["openai_config"] = get_openai_config()
-
     return status
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )

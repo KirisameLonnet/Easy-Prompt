@@ -17,6 +17,19 @@
           title="会话管理器"
         />
 
+        <!-- 用户信息或登录按钮 -->
+        <UserInfo v-if="isAuthenticated" @logout="handleLogout" />
+        <q-btn
+          v-else
+          flat
+          round
+          dense
+          icon="login"
+          @click="showLogin = true"
+          title="登录"
+          color="white"
+        />
+
         <q-btn
           flat
           round
@@ -24,6 +37,7 @@
           icon="settings"
           @click="showApiConfig = true"
           title="API配置"
+          :color="apiConfigComplete ? 'positive' : 'warning'"
         />
 
         <q-btn
@@ -68,8 +82,48 @@
               :style="{ height: chatHeight }"
             >
               <div class="messages-list q-pa-md">
+                <!-- 登录提示消息 -->
+                <div v-if="!isAuthenticated" class="login-message">
+                  <q-card class="login-card" flat bordered>
+                    <q-card-section class="text-center">
+                      <q-icon name="login" size="2rem" color="primary" class="q-mb-md" />
+                      <div class="text-h6 q-mb-md">请先登录</div>
+                      <div class="text-body2 text-grey-7 q-mb-md">
+                        请先登录以使用Easy Prompt服务
+                      </div>
+                      <q-btn
+                        unelevated
+                        color="primary"
+                        label="立即登录"
+                        icon="login"
+                        @click="showLogin = true"
+                      />
+                    </q-card-section>
+                  </q-card>
+                </div>
+
+                <!-- 配置提示消息 -->
+                <div v-else-if="!apiConfigComplete" class="config-message">
+                  <q-card class="config-card" flat bordered>
+                    <q-card-section class="text-center">
+                      <q-icon name="settings" size="2rem" color="warning" class="q-mb-md" />
+                      <div class="text-h6 q-mb-md">需要配置API</div>
+                      <div class="text-body2 text-grey-7 q-mb-md">
+                        请先点击右上角的设置按钮配置API密钥和模型信息
+                      </div>
+                      <q-btn
+                        unelevated
+                        color="primary"
+                        label="立即配置"
+                        icon="settings"
+                        @click="showApiConfig = true"
+                      />
+                    </q-card-section>
+                  </q-card>
+                </div>
+
                 <!-- 欢迎消息 -->
-                <div v-if="chatMessages.length === 0" class="welcome-message">
+                <div v-else-if="chatMessages.length === 0" class="welcome-message">
                   <q-card class="welcome-card" flat bordered>
                     <q-card-section class="text-center">
                       <q-icon name="waving_hand" size="2rem" color="primary" class="q-mb-md" />
@@ -220,6 +274,12 @@
       @create-session="handleCreateSession"
       @delete-session="handleDeleteSession"
     />
+
+    <!-- 登录对话框 -->
+    <LoginDialog
+      v-model="showLogin"
+      @login-success="handleLoginSuccess"
+    />
   </q-page>
 </template>
 
@@ -232,13 +292,17 @@ import PromptResult from 'src/components/PromptResult.vue';
 import ApiConfigDialog from 'src/components/ApiConfigDialog.vue';
 import EnhancedEvaluationCard from 'src/components/EnhancedEvaluationCard.vue';
 import SessionManager from 'src/components/SessionManager.vue';
+import LoginDialog from 'src/components/LoginDialog.vue';
+import UserInfo from 'src/components/UserInfo.vue';
 import { websocketService, type ApiConfig } from 'src/services/websocket';
+import { authService } from 'src/services/auth';
 
 // 响应式数据
 const showInfo = ref(false)
 const showDebug = ref(false);
 const showApiConfig = ref(false);
 const showSessionManager = ref(false);
+const showLogin = ref(false);
 const chatInput = ref<InstanceType<typeof ChatInput>>();
 const scrollArea = ref<QScrollArea>();
 
@@ -263,6 +327,14 @@ const isLoading = computed(() => {
   return appState.value === 'generating_final_prompt' ||
          connectionStatus.value === 'connecting';
 });
+
+const apiConfigComplete = computed(() => {
+  const status = websocketService.getApiConfigStatus();
+  return status.complete;
+});
+
+// 认证状态
+const isAuthenticated = computed(() => authService.isAuthenticated.value);
 
 const websocketUrl = 'ws://127.0.0.1:8000/ws/prompt';
 
@@ -333,6 +405,19 @@ const handleCreateSession = (): void => {
   chatInput.value?.focusInput();
 };
 
+// 认证相关方法
+const handleLogout = (): void => {
+  showLogin.value = true;
+};
+
+const handleLoginSuccess = (): void => {
+  // 登录成功后重新连接WebSocket
+  websocketService.disconnect();
+  setTimeout(() => {
+    websocketService.connect();
+  }, 1000);
+};
+
 const handleDeleteSession = (sessionId: string): void => {
   void websocketService.deleteSession(sessionId);
 };
@@ -361,13 +446,14 @@ const scrollToBottom = async (): Promise<void> => {
 const currentApiConfig = computed(() => {
   const status = websocketService.getApiConfigStatus();
   return status.config || {
-    api_type: 'openai' as const,  // 默认使用OpenAI格式
+    api_type: 'openai' as const,
     api_key: '',
-    base_url: 'https://api.deepseek.com/v1',  // 默认使用DeepSeek
-    model: 'deepseek-chat',  // 默认使用DeepSeek Chat模型
+    base_url: '',
+    model: '',
+    evaluator_model: '',
     temperature: 0.7,
     max_tokens: 4000,
-    nsfw_mode: false // 默认值，确保类型兼容
+    nsfw_mode: false
   };
 });
 
@@ -388,8 +474,23 @@ watch(chatMessages, () => {
 }, { deep: true });
 
 // 生命周期
-onMounted(() => {
-  websocketService.connect();
+onMounted(async () => {
+  // 验证用户登录状态
+  if (authService.isAuthenticated.value) {
+    try {
+      await authService.verifyToken();
+    } catch (error) {
+      console.error('令牌验证失败:', error);
+      showLogin.value = true;
+    }
+  } else {
+    showLogin.value = true;
+  }
+
+  // 只有在用户已认证时才连接WebSocket
+  if (authService.isAuthenticated.value) {
+    websocketService.connect();
+  }
 
   // 延迟聚焦输入框
   setTimeout(() => {
@@ -464,12 +565,14 @@ onUnmounted(() => {
   min-height: 100%;
 }
 
+.config-message,
 .welcome-message {
   display: flex;
   justify-content: center;
   align-items: center;
   min-height: 200px;
 
+  .config-card,
   .welcome-card {
     max-width: 400px;
     border: 2px dashed #e0e0e0;
@@ -479,6 +582,14 @@ onUnmounted(() => {
                 linear-gradient(-45deg, transparent 75%, #f9f9f9 75%);
     background-size: 20px 20px;
     background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+  }
+
+  .config-card {
+    border-color: #ff9800;
+    background: linear-gradient(45deg, #fff3e0 25%, transparent 25%),
+                linear-gradient(-45deg, #fff3e0 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #fff3e0 75%),
+                linear-gradient(-45deg, transparent 75%, #fff3e0 75%);
   }
 }
 
@@ -577,6 +688,45 @@ onUnmounted(() => {
     .q-toolbar-title {
       font-size: 1rem;
     }
+  }
+}
+
+// 登录相关样式
+.login-message {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+}
+
+.login-card {
+  max-width: 400px;
+  width: 100%;
+  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+  border: 2px solid #2196f3;
+  box-shadow: 0 4px 20px rgba(33, 150, 243, 0.3);
+
+  .q-card__section {
+    padding: 24px;
+  }
+}
+
+.config-message {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+}
+
+.config-card {
+  max-width: 400px;
+  width: 100%;
+  background: linear-gradient(135deg, #fff8e1 0%, #fff3c4 100%);
+  border: 2px solid #ff9800;
+  box-shadow: 0 4px 20px rgba(255, 152, 0, 0.3);
+
+  .q-card__section {
+    padding: 24px;
   }
 }
 </style>

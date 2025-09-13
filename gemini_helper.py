@@ -11,8 +11,8 @@ from language_manager import lang_manager
 # --- 全局配置 ---
 gemini_config = {
     "api_key": None,
-    "model": "gemini-2.5-flash",  # 默认对话模型
-    "evaluator_model": "gemini-2.5-flash",  # 默认评估模型
+    "model": "",  # 必须由用户配置
+    "evaluator_model": "",  # 必须由用户配置
     "temperature": 0.7,
     "nsfw_mode": False  # R18内容开关
 }

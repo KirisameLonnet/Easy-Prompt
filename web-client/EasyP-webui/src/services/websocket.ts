@@ -16,7 +16,8 @@ import {
   isFinalPromptChunk,
   isSessionEnd,
   isErrorMessage,
-  isApiConfigResult
+  isApiConfigResult,
+  isAuthResult
 } from 'src/types/websocket';
 import { apiService } from './api';
 
@@ -32,12 +33,13 @@ export interface ApiConfig {
   nsfw_mode: boolean;
 }
 
-// 默认API配置（DeepSeek）
-const defaultApiConfig: ApiConfig = {
+// 空API配置模板
+const emptyApiConfig: ApiConfig = {
   api_type: 'openai',
   api_key: '',
-  base_url: 'https://api.deepseek.com/v1',
-  model: 'deepseek-chat',
+  base_url: '',
+  model: '',
+  evaluator_model: '',
   temperature: 0.7,
   max_tokens: 4000,
   nsfw_mode: false
@@ -147,12 +149,43 @@ class WebSocketService {
     try {
       const saved = localStorage.getItem('api-config');
       if (saved) {
-        return JSON.parse(saved);
+        const config = JSON.parse(saved);
+        // 检查配置是否包含旧的默认值，如果是则清理
+        if (this.hasOldDefaultValues(config)) {
+          console.log('检测到旧的默认配置，正在清理...');
+          this.clearApiConfig();
+          return null;
+        }
+        return config;
       }
     } catch (error) {
       console.error('Failed to load API config:', error);
     }
     return null;
+  }
+
+  private hasOldDefaultValues(config: ApiConfig): boolean {
+    // 检查是否包含旧的DeepSeek默认配置
+    return config.base_url === 'https://api.deepseek.com/v1' &&
+           config.model === 'deepseek-chat';
+  }
+
+  private clearApiConfig(): void {
+    try {
+      localStorage.removeItem('api-config');
+      console.log('已清理旧的API配置');
+    } catch (error) {
+      console.error('Failed to clear API config:', error);
+    }
+  }
+
+  private isConfigComplete(config: ApiConfig): boolean {
+    if (config.api_type === 'openai') {
+      return !!(config.api_key && config.base_url && config.model);
+    } else if (config.api_type === 'gemini') {
+      return !!(config.api_key && config.model);
+    }
+    return false;
   }
 
   // 发送API配置到服务器
@@ -173,8 +206,59 @@ class WebSocketService {
       }
     };
 
-    this.log('发送API配置', configMessage.payload);
+    this.log('发送API配置', {
+      ...configMessage.payload,
+      api_key: configMessage.payload.api_key ? '***已设置***' : '未设置'
+    });
     this.ws.send(JSON.stringify(configMessage));
+  }
+
+  // 发送认证信息
+  private async sendAuthentication(): Promise<void> {
+    if (!this.ws) return;
+
+    try {
+      // 导入认证服务
+      const { authService } = await import('./auth');
+      const token = authService.token.value;
+      if (!token) {
+        this.log('❌ 未找到认证令牌');
+        return;
+      }
+
+      const authMessage = {
+        type: 'auth',
+        payload: {
+          token: token
+        }
+      };
+
+      this.log('发送认证信息');
+      this.ws?.send(JSON.stringify(authMessage));
+    } catch (error) {
+      this.log('❌ 导入认证服务失败', error);
+    }
+  }
+
+  // 处理认证结果
+  private handleAuthResult(payload: { success: boolean; message: string; user?: { id: string; username: string; role: string } }): void {
+    if (payload.success) {
+      this.log('✅ 认证成功', payload.message);
+
+      // 认证成功后，尝试加载API配置
+      const savedConfig = this.loadApiConfig();
+      if (savedConfig && this.isConfigComplete(savedConfig)) {
+        this.apiConfig.value = savedConfig;
+        this.sendApiConfig();
+      } else {
+        this.apiConfig.value = { ...emptyApiConfig };
+        this.appState.value = 'waiting_for_config';
+        this.log('⚠️ 需要配置API，等待用户输入');
+      }
+    } else {
+      this.log('❌ 认证失败', payload.message);
+      this.appState.value = 'waiting_for_auth';
+    }
   }
 
   // 启动会话（使用默认Gemini或环境配置）
@@ -272,42 +356,20 @@ class WebSocketService {
 
   // 初始化会话
   private async initializeSession(): Promise<void> {
+    // 首先发送认证信息
+    await this.sendAuthentication();
+
     // 加载会话列表
     await this.loadSessions();
-
-    // 加载保存的API配置
-    const savedConfig = this.loadApiConfig();
-    if (savedConfig) {
-      this.apiConfig.value = savedConfig;
-      if (savedConfig.api_type === 'openai') {
-        // 发送OpenAI配置
-        this.sendApiConfig();
-        return;
-      }
-    } else {
-      // 如果没有保存的配置，使用默认的DeepSeek配置
-      this.apiConfig.value = { ...defaultApiConfig };
-    }
-
-    // 如果是OpenAI且缺少API密钥，由后端环境可能已配置，此时尝试走后端默认流程
-    if (this.apiConfig.value.api_type === 'openai' && !this.apiConfig.value.api_key) {
-      this.startSession();
-      return;
-    }
-
-    // 如果是OpenAI且有API密钥，发送配置
-    if (this.apiConfig.value.api_type === 'openai') {
-      this.sendApiConfig();
-    } else {
-      // 使用默认（Gemini 或后端环境）的配置
-      this.startSession();
-    }
   }
 
   private handleMessage(message: WebSocketMessage): void {
     console.log('🎯 开始处理消息:', message.type);
 
-    if (isSystemMessage(message)) {
+    if (isAuthResult(message)) {
+      console.log('🔐 进入认证结果处理分支');
+      this.handleAuthResult(message.payload);
+    } else if (isSystemMessage(message)) {
       console.log('📝 进入系统消息处理分支');
       this.handleSystemMessage(message.payload.message);
     } else if (isAIResponseChunk(message)) {
@@ -720,10 +782,13 @@ class WebSocketService {
   }
 
   // 公共方法：获取API配置状态
-  public getApiConfigStatus(): { configured: boolean; config: ApiConfig | null } {
+  public getApiConfigStatus(): { configured: boolean; config: ApiConfig | null; complete: boolean } {
+    const config = this.apiConfig.value;
+    const complete = config ? this.isConfigComplete(config) : false;
     return {
       configured: this.apiConfigured.value,
-      config: this.apiConfig.value
+      config: config,
+      complete: complete
     };
   }
 

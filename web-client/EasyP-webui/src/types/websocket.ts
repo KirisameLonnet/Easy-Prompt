@@ -95,6 +95,27 @@ export interface StartSession {
   payload: object;
 }
 
+// 认证相关消息类型
+export interface AuthMessage {
+  type: 'auth';
+  payload: {
+    token: string;
+  };
+}
+
+export interface AuthResult {
+  type: 'auth_result';
+  payload: {
+    success: boolean;
+    message: string;
+    user?: {
+      id: string;
+      username: string;
+      role: string;
+    };
+  };
+}
+
 // 联合类型定义
 export type ServerMessage =
   | SystemMessage
@@ -104,9 +125,10 @@ export type ServerMessage =
   | FinalPromptChunk
   | SessionEnd
   | ErrorMessage
-  | ApiConfigResult;
+  | ApiConfigResult
+  | AuthResult;
 
-export type ClientMessage = UserResponse | UserConfirmation | ApiConfig | StartSession;
+export type ClientMessage = UserResponse | UserConfirmation | ApiConfig | StartSession | AuthMessage;
 
 export type WebSocketMessage = ServerMessage | ClientMessage;
 
@@ -143,6 +165,14 @@ export function isApiConfigResult(message: WebSocketMessage): message is ApiConf
   return message.type === 'api_config_result';
 }
 
+export function isAuthResult(message: WebSocketMessage): message is AuthResult {
+  return message.type === 'auth_result';
+}
+
+export function isAuthMessage(message: WebSocketMessage): message is AuthMessage {
+  return message.type === 'auth';
+}
+
 // 聊天消息界面显示类型
 export interface ChatMessage {
   id: string;
@@ -156,7 +186,7 @@ export interface ChatMessage {
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 // 应用状态
-export type AppState = 'initial' | 'chatting' | 'awaiting_confirmation' | 'generating_final_prompt' | 'completed' | 'error';
+export type AppState = 'initial' | 'waiting_for_auth' | 'waiting_for_config' | 'chatting' | 'awaiting_confirmation' | 'generating_final_prompt' | 'completed' | 'error';
 
 // 评估数据类型
 export interface EvaluationData {

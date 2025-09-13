@@ -13,6 +13,9 @@
 - 🔥 **R18内容模式**：专业的成人内容角色创作支持
 - 🔒 **多用户安全**：会话隔离，API配置互不干扰
 - 📱 **响应式UI**：增强的评估卡片，支持滚动查看详细信息
+- 🔐 **用户认证系统**：完整的用户注册、登录、JWT认证
+- 🛡️ **API密钥加密**：用户API配置的安全加密存储
+- 👤 **用户配置持久化**：每个用户独立的API配置管理
 
 ## 🏗️ 系统架构
 
@@ -140,17 +143,37 @@ npm run dev
 - **后端API**: http://localhost:8000
 - **API文档**: http://localhost:8000/docs
 
-## ⚙️ API配置
+## ⚙️ 环境配置
 
-### 前端配置（推荐）
+### 1. 环境变量设置
+
+在项目根目录创建 `.env` 文件（参考 `env.example`）：
+
+```bash
+# 统一密钥 (用于JWT认证和API密钥加密，必须设置，长度1-64字符)
+EASYPROMPT_SECRET_KEY=your-secret-key
+```
+
+### 2. API配置
+
+#### 配置步骤
 
 1. 打开前端应用
-2. 点击 **设置** 按钮
-3. 选择API类型：
-   - **Google Gemini**: 需要Google API Key
-   - **OpenAI兼容**: 支持OpenAI、Claude、DeepSeek等
-4. 填入API密钥和相关配置
-5. 点击 **保存配置** 开始使用
+2. **首次使用需要注册/登录**：
+   - 点击右上角的 **登录** 按钮
+   - 注册新用户或使用现有账户登录
+3. 登录后点击 **设置** 按钮（橙色表示未配置，绿色表示已配置）
+4. 选择API类型：
+   - **Google Gemini**: 需要Google API Key和模型名称
+   - **OpenAI兼容**: 需要API Key、Base URL和模型名称
+5. 填入所有必填字段（标有*的字段）
+6. 点击 **测试连接** 验证配置
+7. 点击 **保存配置** 开始使用
+
+**注意：** 
+- 所有字段都是必填的
+- 用户配置会加密保存到服务器
+- 每个用户都有独立的API配置
 
 ### 支持的API提供商
 
@@ -161,27 +184,11 @@ npm run dev
 | DeepSeek | `openai` | `https://api.deepseek.com/v1` | `deepseek-chat` | 性价比推荐 |
 | Claude (Anthropic) | `openai` | 通过代理 | `claude-3-sonnet` | 通过OpenAI兼容接口 |
 
-### 环境变量配置（可选）
+### API配置说明
 
-如需设置默认API配置，可创建以下环境变量：
+**重要：** 现在必须在前端界面手动配置API，不再支持环境变量自动配置。
 
-#### OpenAI兼容API（推荐）
-```bash
-export OPENAI_API_KEY="your_api_key"
-export OPENAI_BASE_URL="https://api.deepseek.com/v1"  # 可选，默认DeepSeek
-export OPENAI_MODEL="deepseek-chat"                   # 可选
-export OPENAI_TEMPERATURE="0.7"                       # 可选
-export OPENAI_MAX_TOKENS="4000"                       # 可选
-export NSFW_MODE="false"                               # 可选，R18模式
-```
-
-#### Google Gemini API
-```bash
-export GOOGLE_API_KEY="your_google_api_key"
-export GEMINI_MODEL="gemini-2.5-flash"                # 可选
-export EVALUATOR_MODEL="gemini-2.5-flash"             # 可选
-export NSFW_MODE="false"                               # 可选，R18模式
-```
+所有API配置都通过前端界面进行，配置会自动保存到浏览器本地存储中。
 
 ## 🎨 功能特性
 
