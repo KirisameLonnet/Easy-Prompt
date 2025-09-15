@@ -17,18 +17,7 @@
           title="会话管理器"
         />
 
-        <!-- 用户信息或登录按钮 -->
-        <UserInfo v-if="isAuthenticated" @logout="handleLogout" />
-        <q-btn
-          v-else
-          flat
-          round
-          dense
-          icon="login"
-          @click="showLogin = true"
-          title="登录"
-          color="white"
-        />
+        <!-- 移除用户信息显示 -->
 
         <q-btn
           flat
@@ -82,28 +71,8 @@
               :style="{ height: chatHeight }"
             >
               <div class="messages-list q-pa-md">
-                <!-- 登录提示消息 -->
-                <div v-if="!isAuthenticated" class="login-message">
-                  <q-card class="login-card" flat bordered>
-                    <q-card-section class="text-center">
-                      <q-icon name="login" size="2rem" color="primary" class="q-mb-md" />
-                      <div class="text-h6 q-mb-md">请先登录</div>
-                      <div class="text-body2 text-grey-7 q-mb-md">
-                        请先登录以使用Easy Prompt服务
-                      </div>
-                      <q-btn
-                        unelevated
-                        color="primary"
-                        label="立即登录"
-                        icon="login"
-                        @click="showLogin = true"
-                      />
-                    </q-card-section>
-                  </q-card>
-                </div>
-
                 <!-- 配置提示消息 -->
-                <div v-else-if="!apiConfigComplete" class="config-message">
+                <div v-if="!apiConfigComplete" class="config-message">
                   <q-card class="config-card" flat bordered>
                     <q-card-section class="text-center">
                       <q-icon name="settings" size="2rem" color="warning" class="q-mb-md" />
@@ -275,11 +244,7 @@
       @delete-session="handleDeleteSession"
     />
 
-    <!-- 登录对话框 -->
-    <LoginDialog
-      v-model="showLogin"
-      @login-success="handleLoginSuccess"
-    />
+    <!-- 移除登录对话框 -->
   </q-page>
 </template>
 
@@ -292,17 +257,14 @@ import PromptResult from 'src/components/PromptResult.vue';
 import ApiConfigDialog from 'src/components/ApiConfigDialog.vue';
 import EnhancedEvaluationCard from 'src/components/EnhancedEvaluationCard.vue';
 import SessionManager from 'src/components/SessionManager.vue';
-import LoginDialog from 'src/components/LoginDialog.vue';
-import UserInfo from 'src/components/UserInfo.vue';
 import { websocketService, type ApiConfig } from 'src/services/websocket';
-import { authService } from 'src/services/auth';
 
 // 响应式数据
 const showInfo = ref(false)
 const showDebug = ref(false);
 const showApiConfig = ref(false);
 const showSessionManager = ref(false);
-const showLogin = ref(false);
+// 移除登录相关状态
 const chatInput = ref<InstanceType<typeof ChatInput>>();
 const scrollArea = ref<QScrollArea>();
 
@@ -333,8 +295,7 @@ const apiConfigComplete = computed(() => {
   return status.complete;
 });
 
-// 认证状态
-const isAuthenticated = computed(() => authService.isAuthenticated.value);
+// 移除认证状态检查
 
 const websocketUrl = 'ws://127.0.0.1:8000/ws/prompt';
 
@@ -405,18 +366,7 @@ const handleCreateSession = (): void => {
   chatInput.value?.focusInput();
 };
 
-// 认证相关方法
-const handleLogout = (): void => {
-  showLogin.value = true;
-};
-
-const handleLoginSuccess = (): void => {
-  // 登录成功后重新连接WebSocket
-  websocketService.disconnect();
-  setTimeout(() => {
-    websocketService.connect();
-  }, 1000);
-};
+// 移除认证相关方法
 
 const handleDeleteSession = (sessionId: string): void => {
   void websocketService.deleteSession(sessionId);
@@ -457,9 +407,9 @@ const currentApiConfig = computed(() => {
   };
 });
 
-const handleApiConfigSaved = (config: ApiConfig): void => {
+const handleApiConfigSaved = async (config: ApiConfig): Promise<void> => {
   console.log('保存API配置:', config);
-  websocketService.reconfigureApi(config);
+  await websocketService.reconfigureApi(config);
   showApiConfig.value = false;
 
   // 如果连接已经建立，重新连接以应用新配置
@@ -475,22 +425,8 @@ watch(chatMessages, () => {
 
 // 生命周期
 onMounted(async () => {
-  // 验证用户登录状态
-  if (authService.isAuthenticated.value) {
-    try {
-      await authService.verifyToken();
-    } catch (error) {
-      console.error('令牌验证失败:', error);
-      showLogin.value = true;
-    }
-  } else {
-    showLogin.value = true;
-  }
-
-  // 只有在用户已认证时才连接WebSocket
-  if (authService.isAuthenticated.value) {
-    websocketService.connect();
-  }
+  // 直接连接WebSocket，无需认证
+  websocketService.connect();
 
   // 延迟聚焦输入框
   setTimeout(() => {
@@ -691,25 +627,7 @@ onUnmounted(() => {
   }
 }
 
-// 登录相关样式
-.login-message {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 200px;
-}
-
-.login-card {
-  max-width: 400px;
-  width: 100%;
-  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-  border: 2px solid #2196f3;
-  box-shadow: 0 4px 20px rgba(33, 150, 243, 0.3);
-
-  .q-card__section {
-    padding: 24px;
-  }
-}
+// 移除登录相关样式
 
 .config-message {
   display: flex;

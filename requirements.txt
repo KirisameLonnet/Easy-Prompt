@@ -8,12 +8,4 @@ websockets
 requests
 beautifulsoup4
 lxml
-# 认证和加密依赖
-python-jose[cryptography]
-passlib[bcrypt]
-cryptography
-pydantic[email]
-bcrypt<4.0.0
-# Supabase依赖
-supabase
-postgrest
+# 基础依赖

@@ -19,15 +19,7 @@ from schemas import (
 from session_service import SessionService, get_session_service
 from session_routes import router as session_router
 
-# 导入认证模块
-from auth_routes import router as auth_router
-from user_config_routes import router as user_config_router
-from jwt_auth import get_current_active_user
-from user_database import get_user_database
-
-# 导入Supabase认证模块
-from supabase_routes import router as supabase_router
-from supabase_auth import get_current_user as get_supabase_user
+# 移除所有认证功能，直接使用API配置
 
 # 添加API配置锁，确保多用户API配置不冲突
 api_config_lock = Lock()
@@ -74,12 +66,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注册session管理路由
 # 注册路由
 app.include_router(session_router)
-app.include_router(auth_router)
-app.include_router(user_config_router)
-app.include_router(supabase_router)  # 新增Supabase路由
 
 evaluator_service = EvaluatorService()
 
@@ -171,12 +159,11 @@ async def websocket_endpoint(
     handler = None
     session_id = None
     api_initialized = False
-    current_user = None
     # 将 API 配置限定为当前连接会话的本地变量，避免跨连接污染
     current_api_config = get_empty_api_config()
 
     try:
-        # 1. 等待用户认证和API配置
+        # 1. 等待API配置
         while not api_initialized:
             raw_data = await websocket.receive_text()
             data = json.loads(raw_data)
@@ -184,78 +171,12 @@ async def websocket_endpoint(
             message_type = data.get("type")
             payload = data.get("payload", {})
 
-            if message_type == "auth":
-                # 用户认证
-                token = payload.get("token")
-                if not token:
-                    await send_json(websocket, "auth_result", {
-                        "success": False,
-                        "message": "缺少认证令牌"
-                    })
-                    continue
-                
-                # 验证令牌
-                from jwt_auth import verify_token
-                token_data = verify_token(token)
-                if not token_data:
-                    await send_json(websocket, "auth_result", {
-                        "success": False,
-                        "message": "认证令牌无效"
-                    })
-                    continue
-                
-                # 获取用户信息
-                user_db = get_user_database()
-                current_user = user_db.get_user_by_id(token_data.user_id)
-                if not current_user:
-                    await send_json(websocket, "auth_result", {
-                        "success": False,
-                        "message": "用户不存在"
-                    })
-                    continue
-                
-                await send_json(websocket, "auth_result", {
-                    "success": True,
-                    "message": f"认证成功，欢迎 {current_user.username}",
-                    "user": {
-                        "id": current_user.id,
-                        "username": current_user.username,
-                        "role": current_user.role
-                    }
-                })
-                
-                # 尝试加载用户的API配置
-                user_api_config = user_db.get_user_api_config(current_user.id)
-                if user_api_config:
-                    current_api_config.update(user_api_config)
-                    if initialize_api(current_api_config):
-                        await send_json(websocket, "api_config_result", {
-                            "success": True,
-                            "message": f"已加载保存的API配置: {current_api_config['api_type']}"
-                        })
-                        api_initialized = True
-                    else:
-                        await send_json(websocket, "api_config_result", {
-                            "success": False,
-                            "message": "保存的API配置无效，请重新配置"
-                        })
-
-            elif message_type == "api_config":
+            if message_type == "api_config":
                 # 客户端配置API
-                if not current_user:
-                    await send_json(websocket, "error", {
-                        "message": "请先进行用户认证"
-                    })
-                    continue
-                
                 current_api_config.update(payload)
 
                 # Initialize API with new configuration
                 if initialize_api(current_api_config):
-                    # 保存用户的API配置
-                    user_db = get_user_database()
-                    user_db.save_api_config(current_user.id, current_api_config)
-                    
                     await send_json(websocket, "api_config_result", {
                         "success": True,
                         "message": f"API已配置: {current_api_config['api_type']}"
@@ -268,38 +189,25 @@ async def websocket_endpoint(
                     })
 
             elif message_type == "start_session":
-                # 要求用户必须先认证和配置API
-                if not current_user:
-                    await send_json(websocket, "error", {
-                        "message": "请先进行用户认证"
-                    })
-                else:
-                    await send_json(websocket, "error", {
-                        "message": "请先配置API，点击设置按钮进行配置"
-                    })
-                # 继续等待客户端发送认证或配置
+                # 要求用户必须先配置API
+                await send_json(websocket, "error", {
+                    "message": "请先配置API，点击设置按钮进行配置"
+                })
+                # 继续等待客户端发送配置
 
         # 2. Create conversation handler after API is initialized
-        # 尝试恢复现有session，如果没有则创建新的
-        existing_session_id = ProfileManager.find_existing_session()
-        if existing_session_id:
-            print(f"恢复现有session: {existing_session_id}")
-            session = await session_service.get_session(existing_session_id)
-            if session:
-                handler = session_service.get_handler(existing_session_id)
-                if not handler:
-                    handler = session_service.create_handler(existing_session_id)
-                session_id = existing_session_id
-            else:
-                # 创建新session
-                session = await session_service.create_session()
-                handler = session_service.get_handler(session.id)
-                session_id = session.id
-        else:
-            print("创建新session")
+        try:
+            # 创建新session
             session = await session_service.create_session()
             handler = session_service.get_handler(session.id)
             session_id = session.id
+            print(f"创建新session: {session_id}")
+        except Exception as e:
+            print(f"创建session失败: {e}")
+            await send_json(websocket, "error", {
+                "message": f"创建会话失败: {str(e)}"
+            })
+            return
 
         # 3. Send initial greeting
         await send_json(websocket, "system_message", {"message": lang_manager.t("AI_PROMPT")})

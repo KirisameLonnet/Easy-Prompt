@@ -16,8 +16,7 @@ import {
   isFinalPromptChunk,
   isSessionEnd,
   isErrorMessage,
-  isApiConfigResult,
-  isAuthResult
+  isApiConfigResult
 } from 'src/types/websocket';
 import { apiService } from './api';
 
@@ -124,9 +123,9 @@ class WebSocketService {
   }
 
   // API配置相关方法
-  public setApiConfig(config: ApiConfig): void {
+  public async setApiConfig(config: ApiConfig): Promise<void> {
     this.apiConfig.value = config;
-    this.saveApiConfig(config);
+    await this.saveApiConfig(config);
   }
 
   public getApiConfig(): ApiConfig | null {
@@ -137,16 +136,19 @@ class WebSocketService {
     return this.apiConfigured.value;
   }
 
-  private saveApiConfig(config: ApiConfig): void {
+  private async saveApiConfig(config: ApiConfig): Promise<void> {
     try {
+      // 直接保存到本地存储
       localStorage.setItem('api-config', JSON.stringify(config));
+      console.log('✅ API配置已保存到本地存储');
     } catch (error) {
       console.error('Failed to save API config:', error);
     }
   }
 
-  private loadApiConfig(): ApiConfig | null {
+  private async loadApiConfig(): Promise<ApiConfig | null> {
     try {
+      // 从本地存储加载API配置
       const saved = localStorage.getItem('api-config');
       if (saved) {
         const config = JSON.parse(saved);
@@ -213,53 +215,9 @@ class WebSocketService {
     this.ws.send(JSON.stringify(configMessage));
   }
 
-  // 发送认证信息
-  private async sendAuthentication(): Promise<void> {
-    if (!this.ws) return;
+  // 移除认证功能
 
-    try {
-      // 导入认证服务
-      const { authService } = await import('./auth');
-      const token = authService.token.value;
-      if (!token) {
-        this.log('❌ 未找到认证令牌');
-        return;
-      }
-
-      const authMessage = {
-        type: 'auth',
-        payload: {
-          token: token
-        }
-      };
-
-      this.log('发送认证信息');
-      this.ws?.send(JSON.stringify(authMessage));
-    } catch (error) {
-      this.log('❌ 导入认证服务失败', error);
-    }
-  }
-
-  // 处理认证结果
-  private handleAuthResult(payload: { success: boolean; message: string; user?: { id: string; username: string; role: string } }): void {
-    if (payload.success) {
-      this.log('✅ 认证成功', payload.message);
-
-      // 认证成功后，尝试加载API配置
-      const savedConfig = this.loadApiConfig();
-      if (savedConfig && this.isConfigComplete(savedConfig)) {
-        this.apiConfig.value = savedConfig;
-        this.sendApiConfig();
-      } else {
-        this.apiConfig.value = { ...emptyApiConfig };
-        this.appState.value = 'waiting_for_config';
-        this.log('⚠️ 需要配置API，等待用户输入');
-      }
-    } else {
-      this.log('❌ 认证失败', payload.message);
-      this.appState.value = 'waiting_for_auth';
-    }
-  }
+  // 移除认证结果处理
 
   // 启动会话（使用默认Gemini或环境配置）
   private startSession(): void {
@@ -326,7 +284,7 @@ class WebSocketService {
       this.connectionStatus.value = 'error';
     };
 
-    this.ws.onmessage = (event) => {
+    this.ws.onmessage = async (event) => {
       this.log('🔵 WebSocket 原始消息', event.data);
 
       try {
@@ -347,7 +305,7 @@ class WebSocketService {
         };
         this.log('📋 消息分类检查', typeCheck);
 
-        this.handleMessage(message);
+        await this.handleMessage(message);
       } catch (error) {
         this.log('❌ 解析 WebSocket 消息失败', error);
       }
@@ -356,20 +314,25 @@ class WebSocketService {
 
   // 初始化会话
   private async initializeSession(): Promise<void> {
-    // 首先发送认证信息
-    await this.sendAuthentication();
+    // 直接加载API配置和会话列表
+    const savedConfig = await this.loadApiConfig();
+    if (savedConfig && this.isConfigComplete(savedConfig)) {
+      this.apiConfig.value = savedConfig;
+      this.sendApiConfig();
+    } else {
+      this.apiConfig.value = { ...emptyApiConfig };
+      this.appState.value = 'waiting_for_config';
+      this.log('⚠️ 需要配置API，等待用户输入');
+    }
 
     // 加载会话列表
     await this.loadSessions();
   }
 
-  private handleMessage(message: WebSocketMessage): void {
+  private async handleMessage(message: WebSocketMessage): Promise<void> {
     console.log('🎯 开始处理消息:', message.type);
 
-    if (isAuthResult(message)) {
-      console.log('🔐 进入认证结果处理分支');
-      this.handleAuthResult(message.payload);
-    } else if (isSystemMessage(message)) {
+    if (isSystemMessage(message)) {
       console.log('📝 进入系统消息处理分支');
       this.handleSystemMessage(message.payload.message);
     } else if (isAIResponseChunk(message)) {
@@ -774,8 +737,8 @@ class WebSocketService {
   }
 
   // 公共方法：重新配置API
-  public reconfigureApi(config: ApiConfig): void {
-    this.setApiConfig(config);
+  public async reconfigureApi(config: ApiConfig): Promise<void> {
+    await this.setApiConfig(config);
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.sendApiConfig();
     }
