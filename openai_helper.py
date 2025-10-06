@@ -4,12 +4,10 @@ OpenAI格式API支持模块
 """
 import os
 import json
-import requests
 import time
 from typing import Dict, Generator, Optional, Any
 from language_manager import lang_manager
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import httpx
 
 # --- 全局配置 ---
 openai_config = {
@@ -82,24 +80,15 @@ def test_api_connection() -> bool:
         print(f"❌ API连接测试失败: {str(e)}")
         return False
 
-def _create_session_with_retry():
-    """创建带有重试机制的requests session"""
-    session = requests.Session()
-    
-    # 配置重试策略
-    retry_strategy = Retry(
-        total=3,  # 总重试次数
-        backoff_factor=1,  # 重试间隔倍数
-        status_forcelist=[429, 500, 502, 503, 504],  # 需要重试的HTTP状态码
-        allowed_methods=["POST"]  # 允许重试的方法
+def _create_httpx_client():
+    """创建httpx客户端"""
+    return httpx.Client(
+        headers={
+            'Accept-Charset': 'utf-8',
+            'Content-Type': 'application/json; charset=utf-8'
+        },
+        timeout=30.0
     )
-    
-    # 创建适配器
-    adapter = HTTPAdapter(max_retries=retry_strategy)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    
-    return session
 
 def _make_openai_request(messages: list, stream: bool = False) -> dict:
     """
@@ -110,7 +99,7 @@ def _make_openai_request(messages: list, stream: bool = False) -> dict:
     
     headers = {
         "Authorization": f"Bearer {openai_config['api_key']}",
-        "Content-Type": "application/json",
+        "Content-Type": "application/json; charset=utf-8",
         "User-Agent": "EasyPrompt/1.0"
     }
     
@@ -139,58 +128,63 @@ def _make_openai_request(messages: list, stream: bool = False) -> dict:
             # Claude模型特定参数
             payload["disable_safety"] = True
     
-    url = f"{openai_config['base_url']}/chat/completions"
+    # 检查base_url是否已经包含完整路径，如果没有则添加/chat/completions
+    base_url = openai_config['base_url']
+    if base_url.endswith('/chat/completions'):
+        url = base_url
+    elif base_url.endswith('/v1'):
+        url = f"{base_url}/chat/completions"
+    else:
+        url = f"{base_url}/chat/completions"
     
-    # 使用重试机制
-    session = _create_session_with_retry()
-    
-    try:
-        print(f"正在发送API请求到: {url}")
-        print(f"使用模型: {openai_config['model']}")
+    # 使用httpx客户端
+    with _create_httpx_client() as client:
+        try:
+            print(f"正在发送API请求到: {url}")
+            print(f"使用模型: {openai_config['model']}")
+            
+            # 使用httpx发送请求
+            if stream:
+                response = client.post(
+                    url, 
+                    headers=headers, 
+                    json=payload,
+                    timeout=openai_config["timeout"]
+                )
+            else:
+                response = client.post(
+                    url, 
+                    headers=headers, 
+                    json=payload,
+                    timeout=openai_config["timeout"]
+                )
+            
+            # 检查响应状态
+            if response.status_code != 200:
+                print(f"❌ API请求失败: {response.status_code}")
+                print(f"📄 错误响应: {response.text}")
+                print(f"📋 请求头: {dict(response.headers)}")
+                print(f"📦 请求体: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+            
+            response.raise_for_status()
+            return response
         
-        if stream:
-            response = session.post(
-                url, 
-                headers=headers, 
-                json=payload, 
-                stream=True, 
-                timeout=openai_config["timeout"]
-            )
-        else:
-            response = session.post(
-                url, 
-                headers=headers, 
-                json=payload, 
-                timeout=openai_config["timeout"]
-            )
-        
-        response.raise_for_status()
-        return response
-        
-    except requests.exceptions.ConnectTimeout as e:
-        error_msg = f"API连接超时: {openai_config['base_url']} - {str(e)}"
-        print(f"❌ {error_msg}")
-        raise Exception(error_msg)
-    except requests.exceptions.ReadTimeout as e:
-        error_msg = f"API读取超时: {openai_config['base_url']} - {str(e)}"
-        print(f"❌ {error_msg}")
-        raise Exception(error_msg)
-    except requests.exceptions.ConnectionError as e:
-        error_msg = f"API连接错误: {openai_config['base_url']} - {str(e)}"
-        print(f"❌ {error_msg}")
-        raise Exception(error_msg)
-    except requests.exceptions.HTTPError as e:
-        error_msg = f"API HTTP错误: {e.response.status_code} - {str(e)}"
-        print(f"❌ {error_msg}")
-        raise Exception(error_msg)
-    except requests.exceptions.RequestException as e:
-        error_msg = f"API请求失败: {openai_config['base_url']} - {str(e)}"
-        print(f"❌ {error_msg}")
-        raise Exception(error_msg)
-    except Exception as e:
-        error_msg = f"未知错误: {str(e)}"
-        print(f"❌ {error_msg}")
-        raise Exception(error_msg)
+        except httpx.TimeoutException as e:
+            error_msg = f"API连接超时: {openai_config['base_url']} - {str(e)}"
+            print(f"❌ {error_msg}")
+            raise Exception(error_msg)
+        except httpx.ConnectError as e:
+            error_msg = f"API连接错误: {openai_config['base_url']} - {str(e)}"
+            print(f"❌ {error_msg}")
+            raise Exception(error_msg)
+        except httpx.HTTPStatusError as e:
+            error_msg = f"API HTTP错误: {e.response.status_code} - {str(e)}"
+            print(f"❌ {error_msg}")
+            raise Exception(error_msg)
+        except Exception as e:
+            error_msg = f"未知错误: {str(e)}"
+            print(f"❌ {error_msg}")
+            raise Exception(error_msg)
 
 def get_openai_conversation_response_stream(chat_history: list, user_message: str, critique: str):
     """
@@ -249,7 +243,11 @@ def get_openai_conversation_response_stream(chat_history: list, user_message: st
         
         for line in response.iter_lines():
             if line:
-                line = line.decode('utf-8')
+                # 确保使用UTF-8解码
+                if isinstance(line, bytes):
+                    line = line.decode('utf-8', errors='replace')
+                elif not isinstance(line, str):
+                    line = str(line)
                 if line.startswith('data: '):
                     data = line[6:]
                     if data == '[DONE]':
@@ -367,7 +365,11 @@ def write_openai_final_prompt_stream(full_profile: str) -> Generator[str, None, 
         
         for line in response.iter_lines():
             if line:
-                line = line.decode('utf-8')
+                # 确保使用UTF-8解码
+                if isinstance(line, bytes):
+                    line = line.decode('utf-8', errors='replace')
+                elif not isinstance(line, str):
+                    line = str(line)
                 if line.startswith('data: '):
                     data = line[6:]
                     if data == '[DONE]':

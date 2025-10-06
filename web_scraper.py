@@ -18,6 +18,7 @@ class WebScraper:
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
             'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Charset': 'utf-8',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
         })
@@ -67,9 +68,18 @@ class WebScraper:
             response = self.session.get(url, timeout=self.timeout)
             response.raise_for_status()
             
-            # 检测编码
-            if response.encoding == 'ISO-8859-1':
-                response.encoding = response.apparent_encoding
+            # 强制使用UTF-8编码处理所有内容，防止latin-1编码问题
+            # 检测编码，优先使用apparent_encoding或UTF-8
+            if response.encoding in ['ISO-8859-1', 'latin-1', None] or not response.encoding:
+                response.encoding = response.apparent_encoding or 'utf-8'
+            
+            # 如果编码不是UTF-8变体，强制设置为UTF-8
+            if response.encoding and 'utf' not in response.encoding.lower():
+                response.encoding = 'utf-8'
+            
+            # 再次确认：如果仍然是latin-1，强制改为utf-8
+            if response.encoding and 'latin' in response.encoding.lower():
+                response.encoding = 'utf-8'
             
             soup = BeautifulSoup(response.content, 'html.parser')
             

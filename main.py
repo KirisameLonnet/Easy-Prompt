@@ -73,7 +73,8 @@ evaluator_service = EvaluatorService()
 
 async def send_json(websocket: WebSocket, message_type: str, payload: dict):
     """Utility to send a structured JSON message."""
-    await websocket.send_text(json.dumps({"type": message_type, "payload": payload}))
+    # 使用ensure_ascii=False确保中文字符被正确编码为UTF-8，而不是转义序列
+    await websocket.send_text(json.dumps({"type": message_type, "payload": payload}, ensure_ascii=False))
 
 
 # 环境驱动的默认 API 配置探测

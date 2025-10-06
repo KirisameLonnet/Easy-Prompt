@@ -123,9 +123,9 @@ class WebSocketService {
   }
 
   // API配置相关方法
-  public async setApiConfig(config: ApiConfig): Promise<void> {
+  public setApiConfig(config: ApiConfig): void {
     this.apiConfig.value = config;
-    await this.saveApiConfig(config);
+    this.saveApiConfig(config);
   }
 
   public getApiConfig(): ApiConfig | null {
@@ -136,7 +136,7 @@ class WebSocketService {
     return this.apiConfigured.value;
   }
 
-  private async saveApiConfig(config: ApiConfig): Promise<void> {
+  private saveApiConfig(config: ApiConfig): void {
     try {
       // 直接保存到本地存储
       localStorage.setItem('api-config', JSON.stringify(config));
@@ -146,7 +146,7 @@ class WebSocketService {
     }
   }
 
-  private async loadApiConfig(): Promise<ApiConfig | null> {
+  private loadApiConfig(): ApiConfig | null {
     try {
       // 从本地存储加载API配置
       const saved = localStorage.getItem('api-config');
@@ -284,7 +284,7 @@ class WebSocketService {
       this.connectionStatus.value = 'error';
     };
 
-    this.ws.onmessage = async (event) => {
+    this.ws.onmessage = (event) => {
       this.log('🔵 WebSocket 原始消息', event.data);
 
       try {
@@ -305,7 +305,7 @@ class WebSocketService {
         };
         this.log('📋 消息分类检查', typeCheck);
 
-        await this.handleMessage(message);
+        this.handleMessage(message);
       } catch (error) {
         this.log('❌ 解析 WebSocket 消息失败', error);
       }
@@ -315,7 +315,7 @@ class WebSocketService {
   // 初始化会话
   private async initializeSession(): Promise<void> {
     // 直接加载API配置和会话列表
-    const savedConfig = await this.loadApiConfig();
+    const savedConfig = this.loadApiConfig();
     if (savedConfig && this.isConfigComplete(savedConfig)) {
       this.apiConfig.value = savedConfig;
       this.sendApiConfig();
@@ -329,7 +329,7 @@ class WebSocketService {
     await this.loadSessions();
   }
 
-  private async handleMessage(message: WebSocketMessage): Promise<void> {
+  private handleMessage(message: WebSocketMessage): void {
     console.log('🎯 开始处理消息:', message.type);
 
     if (isSystemMessage(message)) {
@@ -737,8 +737,8 @@ class WebSocketService {
   }
 
   // 公共方法：重新配置API
-  public async reconfigureApi(config: ApiConfig): Promise<void> {
-    await this.setApiConfig(config);
+  public reconfigureApi(config: ApiConfig): void {
+    this.setApiConfig(config);
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.sendApiConfig();
     }

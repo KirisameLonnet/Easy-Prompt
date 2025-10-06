@@ -407,9 +407,9 @@ const currentApiConfig = computed(() => {
   };
 });
 
-const handleApiConfigSaved = async (config: ApiConfig): Promise<void> => {
+const handleApiConfigSaved = (config: ApiConfig): void => {
   console.log('保存API配置:', config);
-  await websocketService.reconfigureApi(config);
+  websocketService.reconfigureApi(config);
   showApiConfig.value = false;
 
   // 如果连接已经建立，重新连接以应用新配置
@@ -424,7 +424,7 @@ watch(chatMessages, () => {
 }, { deep: true });
 
 // 生命周期
-onMounted(async () => {
+onMounted(() => {
   // 直接连接WebSocket，无需认证
   websocketService.connect();
 
