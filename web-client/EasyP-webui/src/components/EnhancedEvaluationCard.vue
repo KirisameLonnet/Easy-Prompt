@@ -12,10 +12,11 @@
 
     <q-card-section class="panel-content q-pa-none">
       <q-scroll-area
-        :style="{ height: cardHeight }"
-        class="evaluation-scroll-area"
+        class="evaluation-scroll-area fit"
+        :thumb-style="{ width: '6px', borderRadius: '3px', opacity: '0.5' }"
+        :bar-style="{ width: '6px' }"
       >
-        <div class="q-pa-md">
+        <div class="scroll-content-wrapper q-pa-md">
           <!-- 当前状态显示 -->
           <div v-if="showEvaluationCard" class="evaluation-progress">
             <div class="progress-header">
@@ -89,7 +90,7 @@
             </div>
 
             <!-- 评估分数显示 -->
-            <div v-if="evaluationScore !== null" class="score-section q-mt-md">
+            <div v-if="evaluationScore != null" class="score-section q-mt-md">
               <div class="section-header">
                 <q-icon name="analytics" color="info" size="md" class="q-mr-sm" />
                 <span class="text-subtitle2 text-info">完整度评分</span>
@@ -114,6 +115,34 @@
                   </div>
                 </div>
               </div>
+
+              <!-- 优秀评分提示 - 建议生成提示词 -->
+              <q-banner
+                v-if="evaluationScore != null && evaluationScore >= 9"
+                class="q-mt-md generate-prompt-banner"
+                rounded
+                dense
+              >
+                <template v-slot:avatar>
+                  <q-icon name="rocket_launch" color="positive" size="md" />
+                </template>
+                <div class="text-subtitle2 text-positive q-mb-xs">
+                  🎉 角色已完善！
+                </div>
+                <div class="text-caption text-grey-7">
+                  您的角色设定已经非常完整，建议立即生成提示词
+                </div>
+                <template v-slot:action>
+                  <q-btn
+                    unelevated
+                    color="positive"
+                    label="生成提示词"
+                    icon="auto_awesome"
+                    size="sm"
+                    @click="$emit('generate-prompt')"
+                  />
+                </template>
+              </q-banner>
             </div>
 
             <!-- 完整度指标 -->
@@ -153,8 +182,24 @@
               </div>
             </div>
 
-            <!-- 操作按钮区域 - 移到滚动区域内 -->
-            <div v-if="hasExtractedContent" class="action-buttons q-mt-lg q-pb-md">
+            <!-- 操作按钮区域 - 确保有足够的底部空间 -->
+            <div v-if="hasExtractedContent" class="action-buttons q-mt-lg">
+              <div class="row justify-center q-gutter-sm q-mb-sm">
+                <q-btn
+                  unelevated
+                  icon="auto_awesome"
+                  label="生成提示词"
+                  color="positive"
+                  size="md"
+                  @click="$emit('generate-prompt')"
+                  class="full-width"
+                  :disable="evaluationScore != null && evaluationScore < 3"
+                >
+                  <q-tooltip v-if="evaluationScore != null && evaluationScore < 3">
+                    评分过低，建议继续补充角色特征后再生成
+                  </q-tooltip>
+                </q-btn>
+              </div>
               <div class="row justify-center q-gutter-sm">
                 <q-btn
                   flat
@@ -174,15 +219,22 @@
                 />
               </div>
             </div>
+
+            <!-- 额外的底部占位空间，确保可以完整滚动 -->
+            <div class="bottom-spacer"></div>
           </div>
 
           <!-- 空状态显示 -->
-          <div v-if="!showEvaluationCard && !hasExtractedContent" class="empty-state">
-            <q-icon name="psychology" size="3rem" color="grey-4" class="q-mb-md" />
-            <div class="text-body2 text-grey-5 text-center">等待评估...</div>
-            <div class="text-caption text-grey-4 text-center q-mt-xs">
-              开始描述角色特征后，这里会显示评估结果
+          <div v-if="!showEvaluationCard && !hasExtractedContent">
+            <div class="empty-state">
+              <q-icon name="psychology" size="3rem" color="grey-4" class="q-mb-md" />
+              <div class="text-body2 text-grey-5 text-center">等待评估...</div>
+              <div class="text-caption text-grey-4 text-center q-mt-xs">
+                开始描述角色特征后，这里会显示评估结果
+              </div>
             </div>
+            <!-- 空状态也需要底部占位 -->
+            <div class="bottom-spacer"></div>
           </div>
         </div>
       </q-scroll-area>
@@ -223,17 +275,16 @@ interface Props {
     behavioral_patterns: number;
     interaction_patterns: number;
   };
-  cardHeight?: string;
 }
 
 interface Emits {
   (e: 're-evaluate'): void;
   (e: 'trait-selected', trait: string): void;
+  (e: 'generate-prompt'): void;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   extractedKeywords: () => [],
-  cardHeight: '400px',
   evaluationScore: null,
   completenessData: () => ({
     core_identity: 0,
@@ -343,7 +394,7 @@ const formatDetailReport = (): string => {
     report.push(props.extractedKeywords.join(', '));
   }
 
-  if (props.evaluationScore !== null && props.evaluationScore !== undefined) {
+  if (props.evaluationScore != null) {
     report.push(`\n完整度评分: ${props.evaluationScore}/10`);
   }
 
@@ -359,8 +410,7 @@ const formatDetailReport = (): string => {
 
 <style scoped lang="scss">
 .enhanced-evaluation-card {
-  min-height: 300px;
-  max-height: 600px;
+  height: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -373,10 +423,33 @@ const formatDetailReport = (): string => {
 .panel-content {
   flex: 1;
   overflow: hidden;
+  min-height: 0; // 关键：允许 flex 子元素正确缩小
+}
+
+.scroll-content-wrapper {
+  // 移除默认的底部padding，改用bottom-spacer
+  padding-bottom: 0 !important;
 }
 
 .evaluation-scroll-area {
   width: 100%;
+
+  // 优化滚动条样式
+  :deep(.q-scrollarea__thumb) {
+    opacity: 0.5;
+    transition: opacity 0.3s;
+    background: #ff9800;
+
+    &:hover {
+      opacity: 0.8;
+    }
+  }
+
+  // 修复SASS语法错误：直接使用完整选择器
+  :deep(.q-scrollarea__bar--v) {
+    width: 6px;
+    opacity: 1;
+  }
 }
 
 .section-header {
@@ -439,6 +512,12 @@ const formatDetailReport = (): string => {
   margin-top: 16px;
 }
 
+// 底部占位空间，确保可以完整滚动到按钮下方
+.bottom-spacer {
+  height: 32px;
+  flex-shrink: 0;
+}
+
 .progress-header {
   display: flex;
   align-items: center;
@@ -451,6 +530,35 @@ const formatDetailReport = (): string => {
   padding: 8px;
   border-radius: 4px;
   border-left: 3px solid #ff9800;
+}
+
+.generate-prompt-banner {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  border: 2px solid #4caf50;
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.2);
+  animation: pulse-border 2s ease-in-out infinite;
+
+  :deep(.q-banner__avatar) {
+    font-size: 2rem;
+  }
+
+  :deep(.q-btn) {
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+
+    &:hover {
+      box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+    }
+  }
+}
+
+@keyframes pulse-border {
+  0%, 100% {
+    border-color: #4caf50;
+  }
+  50% {
+    border-color: #66bb6a;
+  }
 }
 
 .evaluation-detail {
@@ -469,8 +577,30 @@ const formatDetailReport = (): string => {
 
 // 响应式设计
 @media (max-width: 768px) {
-  .enhanced-evaluation-card {
-    max-height: 400px;
+  .panel-header {
+    padding: 10px 12px !important;
+
+    .text-subtitle1 {
+      font-size: 0.9rem;
+    }
+
+    .text-caption {
+      font-size: 0.7rem;
+    }
+  }
+
+  .scroll-content-wrapper {
+    padding: 12px !important;
+  }
+
+  .section-header {
+    .text-subtitle2 {
+      font-size: 0.85rem;
+    }
+
+    .q-icon {
+      font-size: 1.2rem;
+    }
   }
 
   .score-display {
@@ -480,6 +610,153 @@ const formatDetailReport = (): string => {
     .q-circular-progress {
       margin-bottom: 8px;
       margin-right: 0;
+    }
+  }
+
+  .traits-grid, .keywords-grid {
+    gap: 6px;
+  }
+
+  .trait-chip, .keyword-chip {
+    font-size: 0.75rem;
+  }
+
+  .action-buttons {
+    margin-top: 12px;
+    padding-top: 12px;
+
+    .q-btn {
+      font-size: 0.75rem;
+      padding: 4px 8px;
+    }
+  }
+
+  .generate-prompt-banner {
+    :deep(.q-banner__content) {
+      font-size: 0.85rem;
+    }
+
+    :deep(.q-btn) {
+      font-size: 0.75rem;
+      padding: 6px 12px;
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .panel-header {
+    padding: 8px 10px !important;
+
+    .text-subtitle1 {
+      font-size: 0.85rem;
+    }
+
+    .text-caption {
+      font-size: 0.65rem;
+    }
+
+    .q-icon {
+      font-size: 1rem;
+    }
+  }
+
+  .scroll-content-wrapper {
+    padding: 10px !important;
+  }
+
+  .section-header {
+    margin-bottom: 6px;
+
+    .text-subtitle2 {
+      font-size: 0.8rem;
+    }
+
+    .q-icon {
+      font-size: 1rem;
+      margin-right: 4px !important;
+    }
+
+    .q-chip {
+      font-size: 0.65rem;
+    }
+  }
+
+  .progress-header {
+    .text-body2 {
+      font-size: 0.8rem;
+    }
+  }
+
+  .progress-message {
+    padding: 6px;
+
+    .text-caption {
+      font-size: 0.7rem;
+    }
+  }
+
+  .score-display {
+    .q-circular-progress {
+      font-size: 50px !important;
+    }
+
+    .text-h6 {
+      font-size: 0.9rem;
+    }
+
+    .text-body2 {
+      font-size: 0.75rem;
+    }
+
+    .text-caption {
+      font-size: 0.65rem;
+    }
+  }
+
+  .indicator-item {
+    padding: 3px 0;
+
+    .text-body2 {
+      font-size: 0.75rem;
+    }
+  }
+
+  .empty-state {
+    height: 150px;
+
+    .q-icon {
+      font-size: 2rem !important;
+    }
+
+    .text-body2 {
+      font-size: 0.8rem;
+    }
+
+    .text-caption {
+      font-size: 0.7rem;
+    }
+  }
+
+  .generate-prompt-banner {
+    :deep(.q-banner__avatar) {
+      font-size: 1.5rem !important;
+    }
+
+    :deep(.q-banner__content) {
+      font-size: 0.8rem;
+    }
+
+    .text-subtitle2 {
+      font-size: 0.85rem;
+    }
+
+    .text-caption {
+      font-size: 0.7rem;
+    }
+
+    :deep(.q-btn) {
+      font-size: 0.7rem;
+      padding: 5px 10px;
     }
   }
 }
@@ -497,6 +774,11 @@ const formatDetailReport = (): string => {
 
   .progress-message {
     background: rgba(255, 152, 0, 0.1);
+  }
+
+  .generate-prompt-banner {
+    background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%);
+    border-color: #66bb6a;
   }
 }
 </style>

@@ -9,13 +9,31 @@ from llm_helper import (
 from language_manager import lang_manager
 from typing import Optional
 from web_scraper import web_scraper
+from search_helper import search_helper
 
 class ConversationHandler:
     """
     Orchestrates the conversation using a diagnostic-driven approach.
+    支持用户隔离和多用户系统。
     """
-    def __init__(self, session_id: Optional[str] = None):
-        self.profile_manager = ProfileManager(session_id=session_id)
+    def __init__(
+        self, 
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None
+    ):
+        """
+        初始化 ConversationHandler
+        
+        Args:
+            session_id: 会话ID
+            user_id: 用户ID（用于用户隔离）
+        """
+        self.session_id = session_id
+        self.user_id = user_id
+        self.profile_manager = ProfileManager(
+            session_id=session_id,
+            user_id=user_id
+        )
         self.chat_session = start_chat_session()
         self.last_critique = "角色档案为空，请引导用户描述角色的核心身份。"
         
@@ -55,7 +73,93 @@ class ConversationHandler:
             yield lang_manager.t("ERROR_LLM_NOT_CONFIGURED")
             return
         
-        # 检查用户输入是否包含链接
+        # 1. 检查是否是角色/人物查询
+        character_query = search_helper.detect_character_query(message)
+        if character_query:
+            character_name = character_query['character_name']
+            yield f"🔍 检测到角色查询: {character_name}"
+            yield f"⏳ 正在搜索wiki/百科网站..."
+            
+            # 执行搜索
+            search_data = search_helper.search_character_info(character_name)
+            
+            if search_data['success'] and search_data['search_results']:
+                # 显示找到的来源
+                yield f"\n📚 找到 {len(search_data['search_results'])} 个信息来源"
+                
+                # 显示角色详细信息
+                character_details = search_data.get('character_details')
+                if character_details:
+                    # 显示提取到的关键信息摘要
+                    if character_details.get('personality'):
+                        yield f"💭 性格: {character_details['personality'][:80]}..."
+                    if character_details.get('background'):
+                        yield f"📖 背景: {character_details['background'][:80]}..."
+                    if character_details.get('quotes'):
+                        yield f"💬 台词: 找到 {len(character_details['quotes'])} 条经典台词"
+                
+                # 构建增强的消息内容
+                enhanced_message = f"""
+用户询问: {message}
+
+角色名称: {character_name}
+
+"""
+                # 添加提取的角色详细信息
+                if character_details:
+                    enhanced_message += "=== 角色详细信息 ===\n\n"
+                    
+                    if character_details.get('background'):
+                        enhanced_message += f"【背景故事】\n{character_details['background']}\n\n"
+                    
+                    if character_details.get('personality'):
+                        enhanced_message += f"【性格特征】\n{character_details['personality']}\n\n"
+                    
+                    if character_details.get('appearance'):
+                        enhanced_message += f"【外貌特征】\n{character_details['appearance']}\n\n"
+                    
+                    if character_details.get('abilities'):
+                        enhanced_message += f"【能力技能】\n{character_details['abilities']}\n\n"
+                    
+                    if character_details.get('quotes'):
+                        enhanced_message += f"【经典台词】\n"
+                        for i, quote in enumerate(character_details['quotes'][:5], 1):
+                            enhanced_message += f"{i}. {quote}\n"
+                        enhanced_message += "\n"
+                    
+                    if character_details.get('relationships'):
+                        enhanced_message += f"【人际关系】\n{character_details['relationships']}\n\n"
+                    
+                    if character_details.get('other_info'):
+                        enhanced_message += f"【补充信息】\n{character_details['other_info']}\n\n"
+                
+                # 添加搜索来源
+                enhanced_message += "=== 信息来源 ===\n"
+                for i, result in enumerate(search_data['search_results'][:3], 1):
+                    enhanced_message += f"{i}. {result.get('title', '无标题')}\n"
+                    if result.get('snippet'):
+                        enhanced_message += f"   {result['snippet'][:150]}...\n"
+                
+                # 添加网页原始内容（如果有）
+                web_content = search_data.get('web_content')
+                if web_content and web_content.get('success') and web_content.get('content'):
+                    enhanced_message += f"\n=== 网页详细内容 ===\n"
+                    enhanced_message += f"标题: {web_content.get('title', '')}\n"
+                    enhanced_message += f"内容: {web_content.get('content', '')[:1000]}\n"
+                
+                enhanced_message += """
+
+请基于以上搜索到的详细信息，帮助用户了解这个角色。
+如果用户想基于这个角色创建prompt，请引导用户确认是否需要修改某些设定，或者直接使用这些信息。
+"""
+                message = enhanced_message
+                yield f"✅ 搜索完成，已提取角色详细信息"
+            else:
+                error_msg = search_data.get('error', '未找到相关信息')
+                yield f"⚠️ 搜索结果有限: {error_msg}"
+                yield f"💡 将尝试基于现有知识回答您的问题"
+        
+        # 2. 检查用户输入是否包含链接
         link_result = web_scraper.process_user_input(message)
         if link_result['has_url']:
             yield f"🔗 检测到链接: {link_result['url']}"

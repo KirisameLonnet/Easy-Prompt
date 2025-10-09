@@ -14,6 +14,7 @@ class SessionStatus(str, Enum):
     COMPLETED = "completed"
     PAUSED = "paused"
     ERROR = "error"
+    PROMPT_GENERATED = "prompt_generated"  # 已生成提示词但可继续对话
 
 
 class MessageType(str, Enum):
@@ -66,6 +67,7 @@ class Session(BaseModel):
     """会话模型"""
     id: str = Field(..., description="会话唯一标识")
     name: str = Field(..., description="会话名称")
+    user_id: Optional[str] = Field(default=None, description="关联用户ID（None表示匿名）")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
     updated_at: datetime = Field(default_factory=datetime.now, description="最后更新时间")
     message_count: int = Field(default=0, description="消息数量")
@@ -73,6 +75,10 @@ class Session(BaseModel):
     last_message: Optional[str] = Field(default=None, description="最后一条消息")
     messages: List[ChatMessage] = Field(default_factory=list, description="消息列表")
     evaluation_data: Optional[EvaluationData] = Field(default=None, description="评估数据")
+    
+    # 未来扩展：访问控制
+    is_public: bool = Field(default=False, description="是否公开（用于分享）")
+    shared_with: List[str] = Field(default_factory=list, description="共享给的用户ID列表")
     
     class Config:
         json_encoders = {

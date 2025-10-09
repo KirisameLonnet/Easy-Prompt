@@ -45,6 +45,20 @@ export interface SessionEnd {
   };
 }
 
+export interface PromptGenerated {
+  type: 'prompt_generated';
+  payload: {
+    message: string;
+  };
+}
+
+export interface ConversationContinued {
+  type: 'conversation_continued';
+  payload: {
+    message: string;
+  };
+}
+
 export interface ErrorMessage {
   type: 'error';
   payload: {
@@ -105,6 +119,8 @@ export type ServerMessage =
   | ConfirmationRequest
   | FinalPromptChunk
   | SessionEnd
+  | PromptGenerated
+  | ConversationContinued
   | ErrorMessage
   | ApiConfigResult;
 
@@ -143,6 +159,14 @@ export function isErrorMessage(message: WebSocketMessage): message is ErrorMessa
 
 export function isApiConfigResult(message: WebSocketMessage): message is ApiConfigResult {
   return message.type === 'api_config_result';
+}
+
+export function isPromptGenerated(message: WebSocketMessage): message is PromptGenerated {
+  return message.type === 'prompt_generated';
+}
+
+export function isConversationContinued(message: WebSocketMessage): message is ConversationContinued {
+  return message.type === 'conversation_continued';
 }
 
 // 移除认证相关的类型保护函数

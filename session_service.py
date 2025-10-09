@@ -1,7 +1,22 @@
 """
 FastAPI Session Management Service
 符合FastAPI规范的会话管理服务
+
+⚠️ DEPRECATED - 此文件已废弃 ⚠️
+=================================
+此文件已被 session_manager.py 替代。
+新的架构使用了抽象存储层（SessionStore）并支持用户隔离。
+
+请使用：
+    from session_manager import SessionManager, get_session_manager
+
+不要使用：
+    from session_service import SessionService, get_session_service
+
+此文件将在未来版本中删除。
+=================================
 """
+import warnings
 import uuid
 import json
 from datetime import datetime
@@ -13,6 +28,14 @@ from contextlib import asynccontextmanager
 from schemas import Session, SessionStatus, ChatMessage, EvaluationData, ApiConfig
 from conversation_handler import ConversationHandler
 from profile_manager import ProfileManager
+
+# 发出废弃警告
+warnings.warn(
+    "session_service.py is deprecated. Use session_manager.py instead. "
+    "This module will be removed in a future version.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class SessionService:

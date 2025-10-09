@@ -16,7 +16,7 @@ from schemas import (
     WebSocketMessage, UserResponse, UserConfirmation, ApiConfig, 
     ApiConfigResult, EvaluationUpdate, ChatMessage, MessageType
 )
-from session_service import SessionService, get_session_service
+from session_manager import SessionManager, get_session_manager
 from session_routes import router as session_router
 
 # 移除所有认证功能，直接使用API配置
@@ -152,7 +152,7 @@ def initialize_api(api_config: dict) -> bool:
 @app.websocket("/ws/prompt")
 async def websocket_endpoint(
     websocket: WebSocket,
-    session_service: SessionService = Depends(get_session_service)
+    session_manager: SessionManager = Depends(get_session_manager)
 ):
     """Handles WebSocket connections for interactive prompt generation."""
     await websocket.accept()
@@ -196,65 +196,11 @@ async def websocket_endpoint(
                 })
                 # 继续等待客户端发送配置
 
-        # 2. Create conversation handler after API is initialized
-        try:
-            # 创建新session
-            session = await session_service.create_session()
-            handler = session_service.get_handler(session.id)
-            session_id = session.id
-            print(f"创建新session: {session_id}")
-        except Exception as e:
-            print(f"创建session失败: {e}")
-            await send_json(websocket, "error", {
-                "message": f"创建会话失败: {str(e)}"
-            })
-            return
-
-        # 3. Send initial greeting
-        await send_json(websocket, "system_message", {"message": lang_manager.t("AI_PROMPT")})
-        initial_stream = handler.get_initial_greeting()
-        for chunk in initial_stream:
-            if chunk.startswith("EVALUATION_TRIGGER::"):
-                evaluation_message = chunk.split("::", 1)[1]
-                await send_json(websocket, "evaluation_update", {"message": evaluation_message})
-
-                # 执行实际的评估逻辑
-                try:
-                    full_profile = handler.profile_manager.get_full_profile()
-                    if full_profile:
-                        from llm_helper import evaluate_profile
-                        evaluation_result = evaluate_profile(full_profile)
-                        if evaluation_result:
-                            critique = evaluation_result.get("critique", "")
-                            extracted_traits = evaluation_result.get("extracted_traits", [])
-                            extracted_keywords = evaluation_result.get("extracted_keywords", [])
-                            evaluation_score = evaluation_result.get("evaluation_score")
-                            completeness_breakdown = evaluation_result.get("completeness_breakdown", {})
-                            suggestions = evaluation_result.get("suggestions", [])
-                            is_ready = evaluation_result.get("is_ready_for_writing", False)
-
-                            # 发送完整的评估结果
-                            await send_json(websocket, "evaluation_update", {
-                                "message": f"[评估完成] {critique}",
-                                "extracted_traits": extracted_traits,
-                                "extracted_keywords": extracted_keywords,
-                                "evaluation_score": evaluation_score,
-                                "completeness_breakdown": completeness_breakdown,
-                                "suggestions": suggestions,
-                                "is_ready": is_ready
-                            })
-                        else:
-                            await send_json(websocket, "evaluation_update", {"message": "[评估服务] 评估失败"})
-                    else:
-                        await send_json(websocket, "evaluation_update", {"message": "[评估服务] 档案为空"})
-                except Exception as e:
-                    print(f"评估过程出错: {e}")
-                    await send_json(websocket, "evaluation_update", {"message": f"[评估服务] 评估出错: {str(e)}"})
-
-            else:
-                await send_json(websocket, "ai_response_chunk", {"chunk": chunk})
-
-        # 4. Main interaction loop
+        # 2. 不在这里创建session，等待用户第一条真实消息后再创建
+        # 这样避免只发送问候语就创建空session
+        print("API已配置，等待用户输入...")
+        
+        # 3. Main interaction loop
         while True:
             raw_data = await websocket.receive_text()
             data = json.loads(raw_data)
@@ -271,7 +217,7 @@ async def websocket_endpoint(
                         "message": f"API已重新配置: {current_api_config['api_type']}"
                     })
                     # Reset handler with new API
-                    handler = session_service.create_handler(session_id)
+                    handler = session_manager.create_handler(session_id)
                 else:
                     await send_json(websocket, "api_config_result", {
                         "success": False,
@@ -279,7 +225,19 @@ async def websocket_endpoint(
                     })
 
             elif message_type == "user_response":
-                await send_json(websocket, "system_message", {"message": lang_manager.t("YOU_PROMPT")})
+                # 如果还没有创建session，现在创建（用户第一条真实消息）
+                if not session_id:
+                    try:
+                        session = await session_manager.create_session()
+                        handler = session_manager.get_handler(session.id)
+                        session_id = session.id
+                        print(f"收到用户第一条消息，创建session: {session_id}")
+                    except Exception as e:
+                        print(f"创建session失败: {e}")
+                        await send_json(websocket, "error", {
+                            "message": f"创建会话失败: {str(e)}"
+                        })
+                        continue
                 
                 # 添加用户消息到session
                 user_message = ChatMessage(
@@ -288,7 +246,7 @@ async def websocket_endpoint(
                     content=payload.get("answer", ""),
                     is_complete=True
                 )
-                await session_service.add_message_to_session(session_id, user_message)
+                await session_manager.add_message_to_session(session_id, user_message)
                 
                 response_generator = handler.handle_message(payload.get("answer", ""))
 
@@ -337,6 +295,10 @@ async def websocket_endpoint(
                         await send_json(websocket, "ai_response_chunk", {"chunk": chunk})
 
             elif message_type == "user_confirmation":
+                if not session_id or not handler:
+                    await send_json(websocket, "error", {"message": "会话未初始化，请先发送消息"})
+                    continue
+                    
                 if payload.get("confirm", False):
                     await send_json(websocket, "system_message", {"message": lang_manager.t("AI_PROMPT")})
                     final_prompt_stream = handler.finalize_prompt()
@@ -344,11 +306,53 @@ async def websocket_endpoint(
                         if chunk == "::FINAL_PROMPT_END::":
                             break
                         await send_json(websocket, "final_prompt_chunk", {"chunk": chunk})
-                    await send_json(websocket, "session_end", {"message": lang_manager.t("APP_SHUTDOWN")})
-                    break  # End session
+                    
+                    # 更新session状态为已生成提示词，但不结束会话
+                    from schemas import SessionStatus
+                    await session_manager.update_session(session_id, status=SessionStatus.PROMPT_GENERATED)
+                    
+                    # 发送提示词生成完成事件，但不结束会话
+                    await send_json(websocket, "prompt_generated", {
+                        "message": "提示词已生成，您可以继续补充细节或开始新对话"
+                    })
+                    # 不再break，继续等待用户输入
                 else:
                     await send_json(websocket, "system_message", {"message": lang_manager.t("YOU_PROMPT")})
                     await send_json(websocket, "ai_response_chunk", {"chunk": lang_manager.t('CONTINUE_PROMPT')})
+            
+            elif message_type == "generate_prompt":
+                if not session_id or not handler:
+                    await send_json(websocket, "error", {"message": "会话未初始化，请先发送消息"})
+                    continue
+                    
+                # 新增：用户随时请求生成提示词
+                await send_json(websocket, "system_message", {"message": "正在生成最终提示词..."})
+                final_prompt_stream = handler.finalize_prompt()
+                for chunk in final_prompt_stream:
+                    if chunk == "::FINAL_PROMPT_END::":
+                        break
+                    await send_json(websocket, "final_prompt_chunk", {"chunk": chunk})
+                
+                # 更新session状态
+                from schemas import SessionStatus
+                await session_manager.update_session(session_id, status=SessionStatus.PROMPT_GENERATED)
+                
+                # 发送提示词生成完成事件
+                await send_json(websocket, "prompt_generated", {
+                    "message": "提示词已生成，您可以继续补充细节"
+                })
+            
+            elif message_type == "continue_conversation":
+                # 新增：用户选择继续补充细节
+                await send_json(websocket, "system_message", {"message": "继续补充角色细节..."})
+                await send_json(websocket, "conversation_continued", {
+                    "message": "请继续描述您想要补充的角色特征"
+                })
+            
+            elif message_type == "end_session":
+                # 新增：用户主动结束会话
+                await send_json(websocket, "session_end", {"message": "会话已结束"})
+                break
 
     except WebSocketDisconnect:
         print(f"Client disconnected: {session_id}")
@@ -360,7 +364,7 @@ async def websocket_endpoint(
             pass  # Ignore errors if the socket is already closed
     finally:
         if session_id:
-            session_service.remove_handler(session_id)
+            session_manager.remove_handler(session_id)
             print(f"Cleaned up session: {session_id}")
 
 

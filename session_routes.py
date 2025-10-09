@@ -10,7 +10,7 @@ from schemas import (
     Session, SessionCreate, SessionUpdate, SessionResponse, 
     SessionStatus, ChatMessage, EvaluationData
 )
-from session_service import SessionService, get_session_service, get_session
+from session_manager import SessionManager, get_session_manager, get_session
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 @router.post("/", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_session(
     session_data: SessionCreate,
-    service: SessionService = Depends(get_session_service)
+    service: SessionManager = Depends(get_session_manager)
 ):
     """创建新会话"""
     try:
@@ -40,7 +40,7 @@ async def create_session(
 
 @router.get("/", response_model=SessionResponse)
 async def get_all_sessions(
-    service: SessionService = Depends(get_session_service)
+    service: SessionManager = Depends(get_session_manager)
 ):
     """获取所有会话"""
     try:
@@ -73,7 +73,7 @@ async def get_session_by_id(
 async def update_session(
     session_id: str,
     session_data: SessionUpdate,
-    service: SessionService = Depends(get_session_service)
+    service: SessionManager = Depends(get_session_manager)
 ):
     """更新会话"""
     try:
@@ -105,7 +105,7 @@ async def update_session(
 @router.delete("/{session_id}", response_model=SessionResponse)
 async def delete_session(
     session_id: str,
-    service: SessionService = Depends(get_session_service)
+    service: SessionManager = Depends(get_session_manager)
 ):
     """删除会话"""
     try:
@@ -134,7 +134,7 @@ async def delete_session(
 async def add_message_to_session(
     session_id: str,
     message: ChatMessage,
-    service: SessionService = Depends(get_session_service)
+    service: SessionManager = Depends(get_session_manager)
 ):
     """向会话添加消息"""
     try:
@@ -163,7 +163,7 @@ async def add_message_to_session(
 async def update_session_evaluation(
     session_id: str,
     evaluation_data: EvaluationData,
-    service: SessionService = Depends(get_session_service)
+    service: SessionManager = Depends(get_session_manager)
 ):
     """更新会话评估数据"""
     try:

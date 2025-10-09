@@ -1,70 +1,76 @@
 <template>
   <q-page class="chat-page">
-    <!-- 头部 -->
-    <div class="chat-header">
-      <q-toolbar class="bg-primary text-white">
-        <q-toolbar-title class="text-center">
-          <q-icon name="auto_awesome" class="q-mr-sm" />
-          Easy Prompt - 角色扮演提示词生成器
-        </q-toolbar-title>
+    <!-- 主容器 - 包含侧边栏和内容 -->
+    <div class="page-container">
+      <!-- ChatGPT风格的侧边栏 -->
+      <SessionSidebar
+        :current-session-id="currentSessionId || ''"
+        @session-changed="handleSessionChanged"
+      />
 
-        <q-btn
-          flat
-          round
-          dense
-          icon="folder"
-          @click="showSessionManager = true"
-          title="会话管理器"
-        />
+      <!-- 主内容区域 -->
+      <div class="main-content">
+        <!-- 头部 -->
+        <div class="chat-header">
+          <q-toolbar class="bg-primary text-white">
+            <q-toolbar-title class="text-center">
+              <q-icon name="auto_awesome" class="q-mr-sm" />
+              Easy Prompt - 角色扮演提示词生成器
+            </q-toolbar-title>
 
-        <!-- 移除用户信息显示 -->
+            <q-btn
+              flat
+              round
+              dense
+              icon="settings"
+              @click="showApiConfig = true"
+              title="API配置"
+              :color="apiConfigComplete ? 'positive' : 'warning'"
+            />
 
-        <q-btn
-          flat
-          round
-          dense
-          icon="settings"
-          @click="showApiConfig = true"
-          title="API配置"
-          :color="apiConfigComplete ? 'positive' : 'warning'"
-        />
+            <q-btn
+              flat
+              round
+              dense
+              icon="bug_report"
+              @click="showDebug = true"
+              title="调试日志"
+            />
 
-        <q-btn
-          flat
-          round
-          dense
-          icon="bug_report"
-          @click="showDebug = true"
-          title="调试日志"
-        />
+            <q-btn
+              flat
+              round
+              dense
+              icon="info"
+              @click="showInfo = true"
+            />
+          </q-toolbar>
+        </div>
 
-        <q-btn
-          flat
-          round
-          dense
-          icon="info"
-          @click="showInfo = true"
-        />
-      </q-toolbar>
-    </div>
-
-    <!-- 主要内容区域 -->
-    <div class="main-content">
-      <!-- 左侧：主对话区域 -->
-      <div class="chat-section">
-        <q-card class="chat-card full-height" flat bordered>
-          <q-card-section class="chat-card-header bg-grey-1">
-            <div class="text-h6 text-grey-8">
-              <q-icon name="chat" class="q-mr-sm" />
-              对话区域
-            </div>
-            <div class="text-caption text-grey-6">
-              与 AI 助手进行角色设定对话
+    <!-- 主要内容区域 - 使用 Quasar Splitter 实现响应式布局 -->
+    <q-splitter
+      v-model="splitterModel"
+      :limits="splitterLimits"
+      :horizontal="isMobile"
+      class="main-content-splitter"
+    >
+      <!-- 对话区域 -->
+      <template v-slot:before>
+        <q-card class="chat-card fit" flat bordered>
+          <q-card-section class="chat-card-header bg-grey-1 q-pa-md">
+            <div class="row items-center no-wrap">
+              <q-icon name="chat" size="sm" class="q-mr-sm" />
+              <div class="col">
+                <div class="text-subtitle1 text-grey-8">对话区域</div>
+                <div class="text-caption text-grey-6">与 AI 助手进行角色设定对话</div>
+              </div>
             </div>
           </q-card-section>
 
+          <q-separator />
+
           <!-- 聊天消息区域 -->
-          <q-card-section class="chat-messages-container">
+          <q-card-section class="chat-messages-container q-pa-none">
             <q-scroll-area
               ref="scrollArea"
               class="chat-messages"
@@ -72,37 +78,27 @@
             >
               <div class="messages-list q-pa-md">
                 <!-- 配置提示消息 -->
-                <div v-if="!apiConfigComplete" class="config-message">
-                  <q-card class="config-card" flat bordered>
-                    <q-card-section class="text-center">
-                      <q-icon name="settings" size="2rem" color="warning" class="q-mb-md" />
-                      <div class="text-h6 q-mb-md">需要配置API</div>
-                      <div class="text-body2 text-grey-7 q-mb-md">
-                        请先点击右上角的设置按钮配置API密钥和模型信息
-                      </div>
-                      <q-btn
-                        unelevated
-                        color="primary"
-                        label="立即配置"
-                        icon="settings"
-                        @click="showApiConfig = true"
-                      />
-                    </q-card-section>
-                  </q-card>
-                </div>
-
-                <!-- 欢迎消息 -->
-                <div v-else-if="chatMessages.length === 0" class="welcome-message">
-                  <q-card class="welcome-card" flat bordered>
-                    <q-card-section class="text-center">
-                      <q-icon name="waving_hand" size="2rem" color="primary" class="q-mb-md" />
-                      <div class="text-h6 q-mb-md">开始创建你的角色</div>
-                      <div class="text-body2 text-grey-7">
-                        请描述你想要的角色特征，我将帮助你完善角色设定...
-                      </div>
-                    </q-card-section>
-                  </q-card>
-                </div>
+                <q-banner
+                  v-if="!apiConfigComplete"
+                  class="bg-orange-1 text-orange-9 q-mb-md"
+                  rounded
+                  dense
+                >
+                  <template v-slot:avatar>
+                    <q-icon name="settings" color="warning" />
+                  </template>
+                  <div class="text-subtitle2 q-mb-xs">需要配置API</div>
+                  <div class="text-caption">请先点击右上角的设置按钮配置API密钥和模型信息</div>
+                  <template v-slot:action>
+                    <q-btn
+                      flat
+                      dense
+                      color="warning"
+                      label="立即配置"
+                      @click="showApiConfig = true"
+                    />
+                  </template>
+                </q-banner>
 
                 <!-- 消息列表 -->
                 <ChatMessage
@@ -114,8 +110,10 @@
             </q-scroll-area>
           </q-card-section>
 
+          <q-separator />
+
           <!-- 输入区域 -->
-          <q-card-section class="chat-input-section">
+          <q-card-section class="chat-input-section q-pa-md">
             <ChatInput
               ref="chatInput"
               :connection-status="connectionStatus"
@@ -130,66 +128,30 @@
             />
           </q-card-section>
         </q-card>
-      </div>
+      </template>
 
-      <!-- 右侧：状态和结果区域 -->
-      <div class="side-panels">
-        <!-- 增强评估状态卡片 -->
-        <EnhancedEvaluationCard
-          class="evaluation-panel"
-          :evaluation-status="evaluationStatus"
-          :show-evaluation-card="showEvaluationCard"
-          :extracted-traits="extractedTraits"
-          :extracted-keywords="extractedKeywords"
-          :evaluation-score="evaluationScore"
-          :completeness-data="completenessData"
-          card-height="450px"
-          @re-evaluate="handleReEvaluate"
-          @trait-selected="handleTraitSelected"
-        />
-
-        <!-- 提示词结果卡片 -->
-        <q-card
-          class="result-panel"
-          :class="{ 'panel-active': finalPromptContent.length > 0 }"
-          flat
-          bordered
-        >
-          <q-card-section class="panel-header bg-green-1">
-            <div class="text-subtitle1 text-green-8">
-              <q-icon name="auto_awesome" class="q-mr-sm" />
-              提示词结果
-            </div>
-          </q-card-section>
-
-          <q-card-section class="panel-content">
-            <div v-if="finalPromptContent.length > 0" class="result-ready">
-              <div class="result-preview">
-                <q-icon name="check_circle" size="md" color="positive" class="q-mb-sm" />
-                <div class="text-body2 text-positive q-mb-xs">提示词已生成</div>
-                <div class="text-caption text-grey-7 q-mb-md">
-                  {{ formatDate(promptTimestamp) }}
-                </div>
-                <q-btn
-                  unelevated
-                  icon="visibility"
-                  label="查看完整结果"
-                  color="positive"
-                  size="sm"
-                  @click="showPromptResult = true"
-                />
-              </div>
-            </div>
-            <div v-else class="result-waiting">
-              <q-icon name="auto_awesome" size="md" color="grey-4" class="q-mb-sm" />
-              <div class="text-body2 text-grey-5">等待生成结果...</div>
-            </div>
-          </q-card-section>
-        </q-card>
+      <!-- 评估状态区域 -->
+      <template v-slot:after>
+        <div class="evaluation-section">
+          <EnhancedEvaluationCard
+            class="evaluation-panel"
+            :evaluation-status="evaluationStatus"
+            :show-evaluation-card="showEvaluationCard"
+            :extracted-traits="extractedTraits"
+            :extracted-keywords="extractedKeywords"
+            :evaluation-score="evaluationScore"
+            :completeness-data="completenessData"
+            @re-evaluate="handleReEvaluate"
+            @trait-selected="handleTraitSelected"
+            @generate-prompt="handleGeneratePrompt"
+          />
+        </div>
+      </template>
+        </q-splitter>
       </div>
     </div>
 
-        <!-- 调试面板对话框 -->
+    <!-- 调试面板对话框 -->
     <DebugPanel v-model:show="showDebug" />
 
     <!-- 信息面板对话框 -->
@@ -206,9 +168,9 @@
             <p><strong>Easy Prompt</strong> 是一个智能的角色扮演提示词生成工具。</p>
             <p class="q-mt-md"><strong>使用方法：</strong></p>
             <ul class="q-pl-md">
-              <li>在左侧对话区与 AI 讨论角色设定</li>
-              <li>右侧会显示评估进度和最终结果</li>
-              <li>完成后可查看和下载生成的提示词</li>
+              <li>在对话区与 AI 讨论角色设定</li>
+              <li>右侧会实时显示评估状态和角色特征</li>
+              <li>完成后系统会自动生成提示词</li>
             </ul>
             <p class="q-mt-md text-caption text-grey-6">
               WebSocket 地址: {{ websocketUrl }}
@@ -225,6 +187,7 @@
       :timestamp="promptTimestamp"
       @close="handleClosePromptResult"
       @new-chat="handleNewChat"
+      @continue-conversation="handleContinueConversation"
     />
 
     <!-- API配置对话框 -->
@@ -233,40 +196,52 @@
       :initial-config="currentApiConfig"
       @config-saved="handleApiConfigSaved"
     />
-
-    <!-- 会话管理器对话框 -->
-    <SessionManager
-      :show="showSessionManager"
-      :current-session-id="currentSessionId || ''"
-      @close="showSessionManager = false"
-      @switch-session="handleSwitchSession"
-      @create-session="handleCreateSession"
-      @delete-session="handleDeleteSession"
-    />
-
-    <!-- 移除登录对话框 -->
   </q-page>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
-import { QScrollArea } from 'quasar';
+import { QScrollArea, useQuasar } from 'quasar';
 import ChatMessage from 'src/components/ChatMessage.vue';
 import ChatInput from 'src/components/ChatInput.vue';
 import PromptResult from 'src/components/PromptResult.vue';
 import ApiConfigDialog from 'src/components/ApiConfigDialog.vue';
 import EnhancedEvaluationCard from 'src/components/EnhancedEvaluationCard.vue';
-import SessionManager from 'src/components/SessionManager.vue';
+import SessionSidebar from 'src/components/SessionSidebar.vue';
+import DebugPanel from 'src/components/DebugPanel.vue';
 import { websocketService, type ApiConfig } from 'src/services/websocket';
+
+// Quasar 实例
+const $q = useQuasar();
 
 // 响应式数据
 const showInfo = ref(false)
 const showDebug = ref(false);
 const showApiConfig = ref(false);
-const showSessionManager = ref(false);
-// 移除登录相关状态
 const chatInput = ref<InstanceType<typeof ChatInput>>();
 const scrollArea = ref<QScrollArea>();
+
+// 检测是否为移动设备
+const isMobile = computed(() => $q.screen.lt.md); // 小于 md (1024px) 时为移动设备
+
+// Splitter 相关配置 - 根据设备类型设置默认值
+const splitterModel = ref(isMobile.value ? 55 : 70); // 移动端上部占55%，桌面端左侧占70%
+
+// Splitter 限制
+const splitterLimits = computed(() => {
+  if (isMobile.value) {
+    // 移动设备：水平分割，上下分配
+    return [45, 65];
+  } else {
+    // 桌面设备：垂直分割，左侧至少50%，最多85%
+    return [50, 85];
+  }
+});
+
+// 监听屏幕尺寸变化，自动调整 splitter
+watch(isMobile, (newValue) => {
+  splitterModel.value = newValue ? 55 : 70;
+});
 
 // WebSocket 状态（从服务中获取）
 const connectionStatus = computed(() => websocketService.connectionStatus.value);
@@ -312,16 +287,6 @@ const filteredChatMessages = computed(() => {
   });
 });
 
-const formatDate = (date: Date): string => {
-  return date.toLocaleDateString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-};
-
 // 方法
 const handleSendMessage = (message: string): void => {
   websocketService.sendUserResponse(message);
@@ -356,20 +321,9 @@ const handleNewChat = (): void => {
 };
 
 // 会话管理相关方法
-const handleSwitchSession = (sessionId: string): void => {
-  void websocketService.switchToSession(sessionId);
+const handleSessionChanged = (sessionId: string): void => {
+  console.log('Session changed to:', sessionId);
   chatInput.value?.focusInput();
-};
-
-const handleCreateSession = (): void => {
-  void websocketService.createNewSession();
-  chatInput.value?.focusInput();
-};
-
-// 移除认证相关方法
-
-const handleDeleteSession = (sessionId: string): void => {
-  void websocketService.deleteSession(sessionId);
 };
 
 // 增强评估卡片处理方法
@@ -382,6 +336,17 @@ const handleTraitSelected = (trait: string): void => {
   // 处理特性选择，可以显示详细信息或进行其他操作
   console.log('选择的特性:', trait);
   // 这里可以添加更多逻辑，比如显示特性详情对话框
+};
+
+const handleGeneratePrompt = (): void => {
+  // 直接调用生成提示词方法
+  websocketService.generatePrompt();
+};
+
+const handleContinueConversation = (): void => {
+  // 继续补充对话
+  websocketService.continueConversation();
+  chatInput.value?.focusInput();
 };
 
 const scrollToBottom = async (): Promise<void> => {
@@ -447,23 +412,28 @@ onUnmounted(() => {
   background-color: #f5f5f5;
 }
 
+.page-container {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .chat-header {
   flex-shrink: 0;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   z-index: 20;
 }
 
-.main-content {
+.main-content-splitter {
   flex: 1;
-  display: flex;
-  gap: 16px;
-  padding: 16px;
-  overflow: hidden;
-}
-
-.chat-section {
-  flex: 1;
-  min-width: 0; // 防止 flex 项目过度扩展
+  height: calc(100vh - 64px); // 减去头部高度
 }
 
 .chat-card {
@@ -474,13 +444,11 @@ onUnmounted(() => {
 
 .chat-card-header {
   flex-shrink: 0;
-  border-bottom: 1px solid #e0e0e0;
 }
 
 .chat-messages-container {
   flex: 1;
   overflow: hidden;
-  padding: 0;
 }
 
 .chat-messages {
@@ -490,8 +458,20 @@ onUnmounted(() => {
 
 .chat-input-section {
   flex-shrink: 0;
-  border-top: 1px solid #e0e0e0;
   background-color: #fafafa;
+}
+
+.evaluation-section {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+}
+
+.evaluation-panel {
+  flex: 1;
+  min-height: 0; // 关键：允许正确缩小
 }
 
 .messages-list {
@@ -501,150 +481,28 @@ onUnmounted(() => {
   min-height: 100%;
 }
 
-.config-message,
-.welcome-message {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 200px;
+// Quasar Splitter 优化
+:deep(.q-splitter__separator) {
+  background-color: #e0e0e0;
 
-  .config-card,
-  .welcome-card {
-    max-width: 400px;
-    border: 2px dashed #e0e0e0;
-    background: linear-gradient(45deg, #f9f9f9 25%, transparent 25%),
-                linear-gradient(-45deg, #f9f9f9 25%, transparent 25%),
-                linear-gradient(45deg, transparent 75%, #f9f9f9 75%),
-                linear-gradient(-45deg, transparent 75%, #f9f9f9 75%);
-    background-size: 20px 20px;
-    background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
-  }
-
-  .config-card {
-    border-color: #ff9800;
-    background: linear-gradient(45deg, #fff3e0 25%, transparent 25%),
-                linear-gradient(-45deg, #fff3e0 25%, transparent 25%),
-                linear-gradient(45deg, transparent 75%, #fff3e0 75%),
-                linear-gradient(-45deg, transparent 75%, #fff3e0 75%);
+  &:hover {
+    background-color: #1976d2;
   }
 }
 
-.side-panels {
-  width: 300px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  flex-shrink: 0;
+:deep(.q-splitter__before),
+:deep(.q-splitter__after) {
+  overflow: hidden;
 }
 
-.evaluation-panel,
-.result-panel {
-  flex: 1;
-  min-height: 200px;
-  transition: all 0.3s ease;
-  opacity: 0.7;
+// 暗色主题支持
+.body--dark {
+  :deep(.q-splitter__separator) {
+    background-color: #424242;
 
-  &.panel-active {
-    opacity: 1;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  }
-}
-
-.panel-header {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-}
-
-.panel-content {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  min-height: 120px;
-}
-
-.evaluation-active,
-.evaluation-waiting,
-.traits-display,
-.result-ready,
-.result-waiting {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.evaluation-status,
-.traits-display {
-  max-width: 200px;
-}
-
-.traits-list {
-  max-width: 250px;
-  text-align: center;
-}
-
-.result-preview {
-  max-width: 200px;
-}
-
-// 响应式设计
-@media (max-width: 1024px) {
-  .main-content {
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .side-panels {
-    width: 100%;
-    flex-direction: row;
-    min-height: auto;
-  }
-
-  .evaluation-panel,
-  .result-panel {
-    flex: 1;
-    min-height: 150px;
-  }
-}
-
-@media (max-width: 768px) {
-  .main-content {
-    padding: 8px;
-  }
-
-  .side-panels {
-    flex-direction: column;
-  }
-
-  .evaluation-panel,
-  .result-panel {
-    min-height: 120px;
-  }
-
-  .chat-header {
-    .q-toolbar-title {
-      font-size: 1rem;
+    &:hover {
+      background-color: #64b5f6;
     }
-  }
-}
-
-// 移除登录相关样式
-
-.config-message {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 200px;
-}
-
-.config-card {
-  max-width: 400px;
-  width: 100%;
-  background: linear-gradient(135deg, #fff8e1 0%, #fff3c4 100%);
-  border: 2px solid #ff9800;
-  box-shadow: 0 4px 20px rgba(255, 152, 0, 0.3);
-
-  .q-card__section {
-    padding: 24px;
   }
 }
 </style>

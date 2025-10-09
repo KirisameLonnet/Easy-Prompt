@@ -132,6 +132,15 @@
           <div class="col-auto">
             <q-btn
               unelevated
+              icon="add_circle"
+              label="继续补充细节"
+              color="positive"
+              @click="$emit('continue-conversation')"
+              class="q-mr-sm"
+            />
+
+            <q-btn
+              unelevated
               icon="refresh"
               label="开始新对话"
               color="primary"
@@ -167,6 +176,7 @@ interface Props {
 interface Emits {
   (e: 'close'): void;
   (e: 'new-chat'): void;
+  (e: 'continue-conversation'): void;
 }
 
 const props = defineProps<Props>();

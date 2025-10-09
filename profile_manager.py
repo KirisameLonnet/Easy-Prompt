@@ -7,10 +7,33 @@ from typing import Optional
 class ProfileManager:
     """
     Manages the file-based storage for a single character profile session.
+    使用 SessionStore 抽象层进行文件操作，支持用户隔离。
     """
-    def __init__(self, base_path: str = "./sessions", session_id: Optional[str] = None):
+    def __init__(
+        self, 
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        session_store: Optional['SessionStore'] = None
+    ):
+        """
+        初始化 ProfileManager
+        
+        Args:
+            session_id: 会话ID
+            user_id: 用户ID（用于用户隔离）
+            session_store: SessionStore 实例（如果不提供则使用默认的）
+        """
         self.session_id = session_id or str(uuid.uuid4())
-        self.session_path = Path(base_path) / self.session_id
+        self.user_id = user_id
+        
+        # 使用 SessionStore 获取路径
+        if session_store is None:
+            from storage import default_store
+            session_store = default_store
+        
+        self.store = session_store
+        self.session_path = self.store.get_session_path(self.session_id, self.user_id)
+        
         self.profile_file = self.session_path / "character_profile.txt"
         self.evaluation_file = self.session_path / "evaluation.json"
         self.final_prompt_file = self.session_path / "final_prompt.md"
@@ -89,16 +112,34 @@ class ProfileManager:
         return datetime.now().isoformat()
 
     @classmethod
-    def find_existing_session(cls, base_path: str = "./sessions") -> Optional[str]:
-        """Finds the most recently updated session ID."""
-        sessions_dir = Path(base_path)
-        if not sessions_dir.exists():
+    def find_existing_session(
+        cls, 
+        base_path: str = "./sessions",
+        user_id: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Finds the most recently updated session ID.
+        
+        Args:
+            base_path: 基础路径
+            user_id: 用户ID（用于用户隔离）
+            
+        Returns:
+            最新的会话ID，如果没有则返回None
+        """
+        # 确定用户目录
+        if user_id is None or user_id == "anonymous":
+            user_dir = Path(base_path) / "anonymous"
+        else:
+            user_dir = Path(base_path) / "users" / user_id
+        
+        if not user_dir.exists():
             return None
         
         latest_session = None
         latest_time = 0
         
-        for session_dir in sessions_dir.iterdir():
+        for session_dir in user_dir.iterdir():
             if session_dir.is_dir():
                 metadata_file = session_dir / "session_metadata.json"
                 if metadata_file.exists():

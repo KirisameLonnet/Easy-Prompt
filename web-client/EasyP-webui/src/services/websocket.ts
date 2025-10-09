@@ -16,7 +16,9 @@ import {
   isFinalPromptChunk,
   isSessionEnd,
   isErrorMessage,
-  isApiConfigResult
+  isApiConfigResult,
+  isPromptGenerated,
+  isConversationContinued
 } from 'src/types/websocket';
 import { apiService } from './api';
 
@@ -356,6 +358,12 @@ class WebSocketService {
     } else if (isApiConfigResult(message)) {
       console.log('⚙️ 进入API配置结果处理分支');
       this.handleApiConfigResult(message.payload);
+    } else if (isPromptGenerated(message)) {
+      console.log('✨ 进入提示词生成完成处理分支');
+      this.handlePromptGenerated(message.payload);
+    } else if (isConversationContinued(message)) {
+      console.log('➕ 进入继续对话处理分支');
+      this.handleConversationContinued(message.payload);
     } else {
       console.warn('⚠️ 未知消息类型:', message.type);
     }
@@ -555,6 +563,35 @@ class WebSocketService {
     // 不添加到聊天记录，只在右侧面板显示
   }
 
+  private handlePromptGenerated(payload: { message: string }): void {
+    console.log('✨ 提示词生成完成:', payload.message);
+
+    // 显示提示词结果，但不结束会话
+    this.appState.value = 'completed';
+    this.promptTimestamp.value = new Date();
+    this.showPromptResult.value = true;
+
+    // 保存状态到当前会话
+    void this.updateCurrentSession();
+
+    // 不关闭连接，允许用户继续对话
+  }
+
+  private handleConversationContinued(payload: { message: string }): void {
+    console.log('➕ 继续对话:', payload.message);
+
+    // 已经在continueConversation()中设置了状态
+    // 这里可以添加系统提示
+    const chatMessage: ChatMessage = {
+      id: this.generateId(),
+      type: 'system',
+      content: payload.message,
+      timestamp: new Date(),
+      isComplete: true
+    };
+    this.chatMessages.value.push(chatMessage);
+  }
+
   private handleSessionEnd(): void {
     console.log('🔚 会话结束');
 
@@ -692,6 +729,50 @@ class WebSocketService {
 
     this.pendingConfirmation.value = '';
     this.appState.value = confirm ? 'generating_final_prompt' : 'chatting';
+
+    this.ws.send(JSON.stringify(message));
+  }
+
+  // 新增：直接请求生成提示词
+  generatePrompt(): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      console.error('WebSocket is not connected');
+      return;
+    }
+
+    // 完成当前的 AI 消息（如果存在）
+    if (this.currentAIMessage.value) {
+      this.currentAIMessage.value.isComplete = true;
+      this.currentAIMessage.value = null;
+    }
+
+    const message = {
+      type: 'generate_prompt',
+      payload: {}
+    };
+
+    console.log('📤 请求生成提示词:', message);
+    this.appState.value = 'generating_final_prompt';
+    this.ws.send(JSON.stringify(message));
+  }
+
+  // 新增：继续补充对话
+  continueConversation(): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      console.error('WebSocket is not connected');
+      return;
+    }
+
+    const message = {
+      type: 'continue_conversation',
+      payload: {}
+    };
+
+    console.log('📤 继续补充对话:', message);
+
+    // 关闭提示词结果对话框
+    this.showPromptResult.value = false;
+    this.appState.value = 'chatting';
 
     this.ws.send(JSON.stringify(message));
   }
