@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse
 from profile_manager import ProfileManager
 from llm_helper import (
     start_chat_session,
@@ -7,7 +8,7 @@ from llm_helper import (
     evaluate_profile
 )
 from language_manager import lang_manager
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from web_scraper import web_scraper
 from search_helper import search_helper
 
@@ -72,95 +73,19 @@ class ConversationHandler:
         if not self.chat_session:
             yield lang_manager.t("ERROR_LLM_NOT_CONFIGURED")
             return
-        
-        # 1. 检查是否是角色/人物查询
-        character_query = search_helper.detect_character_query(message)
-        if character_query:
-            character_name = character_query['character_name']
-            yield f"🔍 检测到角色查询: {character_name}"
-            yield f"⏳ 正在搜索wiki/百科网站..."
-            
-            # 执行搜索
-            search_data = search_helper.search_character_info(character_name)
-            
-            if search_data['success'] and search_data['search_results']:
-                # 显示找到的来源
-                yield f"\n📚 找到 {len(search_data['search_results'])} 个信息来源"
-                
-                # 显示角色详细信息
-                character_details = search_data.get('character_details')
-                if character_details:
-                    # 显示提取到的关键信息摘要
-                    if character_details.get('personality'):
-                        yield f"💭 性格: {character_details['personality'][:80]}..."
-                    if character_details.get('background'):
-                        yield f"📖 背景: {character_details['background'][:80]}..."
-                    if character_details.get('quotes'):
-                        yield f"💬 台词: 找到 {len(character_details['quotes'])} 条经典台词"
-                
-                # 构建增强的消息内容
-                enhanced_message = f"""
-用户询问: {message}
+        original_message = message
 
-角色名称: {character_name}
-
-"""
-                # 添加提取的角色详细信息
-                if character_details:
-                    enhanced_message += "=== 角色详细信息 ===\n\n"
-                    
-                    if character_details.get('background'):
-                        enhanced_message += f"【背景故事】\n{character_details['background']}\n\n"
-                    
-                    if character_details.get('personality'):
-                        enhanced_message += f"【性格特征】\n{character_details['personality']}\n\n"
-                    
-                    if character_details.get('appearance'):
-                        enhanced_message += f"【外貌特征】\n{character_details['appearance']}\n\n"
-                    
-                    if character_details.get('abilities'):
-                        enhanced_message += f"【能力技能】\n{character_details['abilities']}\n\n"
-                    
-                    if character_details.get('quotes'):
-                        enhanced_message += f"【经典台词】\n"
-                        for i, quote in enumerate(character_details['quotes'][:5], 1):
-                            enhanced_message += f"{i}. {quote}\n"
-                        enhanced_message += "\n"
-                    
-                    if character_details.get('relationships'):
-                        enhanced_message += f"【人际关系】\n{character_details['relationships']}\n\n"
-                    
-                    if character_details.get('other_info'):
-                        enhanced_message += f"【补充信息】\n{character_details['other_info']}\n\n"
-                
-                # 添加搜索来源
-                enhanced_message += "=== 信息来源 ===\n"
-                for i, result in enumerate(search_data['search_results'][:3], 1):
-                    enhanced_message += f"{i}. {result.get('title', '无标题')}\n"
-                    if result.get('snippet'):
-                        enhanced_message += f"   {result['snippet'][:150]}...\n"
-                
-                # 添加网页原始内容（如果有）
-                web_content = search_data.get('web_content')
-                if web_content and web_content.get('success') and web_content.get('content'):
-                    enhanced_message += f"\n=== 网页详细内容 ===\n"
-                    enhanced_message += f"标题: {web_content.get('title', '')}\n"
-                    enhanced_message += f"内容: {web_content.get('content', '')[:1000]}\n"
-                
-                enhanced_message += """
-
-请基于以上搜索到的详细信息，帮助用户了解这个角色。
-如果用户想基于这个角色创建prompt，请引导用户确认是否需要修改某些设定，或者直接使用这些信息。
-"""
+        # 1. 根据搜索意图自动决定是否联网
+        search_plan = search_helper.plan_search_strategy(original_message)
+        if search_plan.get('should_search') and search_plan.get('query'):
+            search_logs, enhanced_message = self._execute_search_plan(original_message, message, search_plan)
+            for log in search_logs:
+                yield log
+            if enhanced_message:
                 message = enhanced_message
-                yield f"✅ 搜索完成，已提取角色详细信息"
-            else:
-                error_msg = search_data.get('error', '未找到相关信息')
-                yield f"⚠️ 搜索结果有限: {error_msg}"
-                yield f"💡 将尝试基于现有知识回答您的问题"
         
         # 2. 检查用户输入是否包含链接
-        link_result = web_scraper.process_user_input(message)
+        link_result = web_scraper.process_user_input(original_message)
         if link_result['has_url']:
             yield f"🔗 检测到链接: {link_result['url']}"
             
@@ -251,3 +176,141 @@ class ConversationHandler:
         
         self.profile_manager.save_final_prompt(final_prompt_content)
         yield "::FINAL_PROMPT_END::"
+
+    def _execute_search_plan(self, original_message: str, current_message: str, plan: Dict[str, Any]):
+        """Executes the resolved search plan and returns status logs plus an enhanced message."""
+        logs: List[str] = []
+        enhanced_message = None
+
+        query = plan.get('query') or ''
+        intent_type = plan.get('intent_type', 'concept')
+        confidence = max(0.0, min(1.0, plan.get('confidence', 0.0)))
+        reason = plan.get('reason') or ''
+
+        confidence_pct = f"{confidence * 100:.0f}%"
+        logs.append(f"🌐 联网搜索触发：{query} (置信度 {confidence_pct})")
+        if reason:
+            logs.append(f"📌 触发原因: {reason}")
+
+        if intent_type == 'character':
+            logs.append("⏳ 正在搜索角色相关的 wiki/百科资料...")
+            search_data = search_helper.search_character_info(query)
+            if search_data['success'] and search_data['search_results']:
+                logs.append(f"\n📚 找到 {len(search_data['search_results'])} 个信息来源")
+
+                character_details = search_data.get('character_details')
+                if character_details:
+                    if character_details.get('personality'):
+                        logs.append(f"💭 性格: {character_details['personality'][:80]}...")
+                    if character_details.get('background'):
+                        logs.append(f"📖 背景: {character_details['background'][:80]}...")
+                    if character_details.get('quotes'):
+                        logs.append(f"💬 台词: 找到 {len(character_details['quotes'])} 条经典台词")
+
+                enhanced = [
+                    f"用户询问: {current_message}",
+                    f"\n角色名称: {query}\n"
+                ]
+
+                if character_details:
+                    enhanced.append("=== 角色详细信息 ===\n")
+                    if character_details.get('background'):
+                        enhanced.append(f"【背景故事】\n{character_details['background']}\n\n")
+                    if character_details.get('personality'):
+                        enhanced.append(f"【性格特征】\n{character_details['personality']}\n\n")
+                    if character_details.get('appearance'):
+                        enhanced.append(f"【外貌特征】\n{character_details['appearance']}\n\n")
+                    if character_details.get('abilities'):
+                        enhanced.append(f"【能力技能】\n{character_details['abilities']}\n\n")
+                    if character_details.get('quotes'):
+                        enhanced.append("【经典台词】\n")
+                        for idx, quote in enumerate(character_details['quotes'][:5], 1):
+                            enhanced.append(f"{idx}. {quote}\n")
+                        enhanced.append("\n")
+                    if character_details.get('relationships'):
+                        enhanced.append(f"【人际关系】\n{character_details['relationships']}\n\n")
+                    if character_details.get('other_info'):
+                        enhanced.append(f"【补充信息】\n{character_details['other_info']}\n\n")
+
+                enhanced.append("=== 信息来源 ===\n")
+                for idx, result in enumerate(search_data['search_results'][:3], 1):
+                    enhanced.append(f"{idx}. {result.get('title', '无标题')}\n")
+                    snippet = result.get('snippet')
+                    if snippet:
+                        enhanced.append(f"   {snippet[:150]}...\n")
+
+                web_content = search_data.get('web_content')
+                if web_content and web_content.get('success') and web_content.get('content'):
+                    enhanced.append("\n=== 网页详细内容 ===\n")
+                    enhanced.append(f"标题: {web_content.get('title', '')}\n")
+                    enhanced.append(f"内容: {web_content.get('content', '')[:1000]}\n")
+
+                enhanced.append(
+                    "\n请基于以上搜索到的详细信息，帮助用户了解这个角色。\n"
+                    "如果用户想基于这个角色创建prompt，请引导用户确认是否需要修改某些设定，或者直接使用这些信息。\n"
+                )
+                enhanced_message = ''.join(enhanced)
+                logs.append("✅ 搜索完成，已提取角色详细信息")
+            else:
+                error_msg = search_data.get('error', '未找到相关信息')
+                logs.append(f"⚠️ 搜索结果有限: {error_msg}")
+                logs.append("💡 将尝试基于现有知识回答您的问题")
+        else:
+            intent_label = '概念/事实' if intent_type == 'concept' else '实时资讯'
+            logs.append(f"🌐 检测到{intent_label}查询: {query}")
+            logs.append("⏳ 正在联网检索相关资料...")
+
+            concept_data = search_helper.search_concept_info(query)
+            if concept_data['success']:
+                summary = concept_data.get('concept_summary', '')
+                key_points = concept_data.get('key_points', [])
+                sources = concept_data.get('search_results', [])
+
+                if summary:
+                    snippet = summary[:160] + ("..." if len(summary) > 160 else "")
+                    logs.append(f"🧠 概念概要: {snippet}")
+                for idx, point in enumerate(key_points[:3], 1):
+                    snippet = point[:160] + ("..." if len(point) > 160 else "")
+                    logs.append(f"· 关键要点{idx}: {snippet}")
+
+                if sources:
+                    logs.append("📚 参考来源:")
+                    for result in sources[:3]:
+                        source_url = result.get('url', '')
+                        domain = urlparse(source_url).netloc if source_url else ''
+                        logs.append(f"  - {result.get('title', '无标题')} ({domain})")
+
+                enhanced = [
+                    f"用户询问: {original_message}\n",
+                    f"概念名称: {query}\n\n",
+                    "=== 概念概要 ===\n",
+                    f"{summary or '暂无权威定义'}\n\n",
+                    "=== 关键要点 ===\n"
+                ]
+
+                if key_points:
+                    for point in key_points:
+                        enhanced.append(f"- {point}\n")
+                else:
+                    enhanced.append("- 暂未提取到更多要点\n")
+
+                web_content = concept_data.get('web_content')
+                if web_content and web_content.get('content'):
+                    excerpt = web_content['content'][:1200]
+                    enhanced.append("\n=== 来源正文摘录 ===\n")
+                    enhanced.append(excerpt + ("..." if len(web_content['content']) > len(excerpt) else ""))
+
+                if sources:
+                    enhanced.append("\n=== 信息来源 (Top 3) ===\n")
+                    for result in sources[:3]:
+                        source_url = result.get('url', '')
+                        domain = urlparse(source_url).netloc if source_url else '未知来源'
+                        enhanced.append(f"{result.get('title', '无标题')} ({domain})\n")
+
+                enhanced_message = ''.join(enhanced)
+                logs.append("✅ 联网资料已整合到上下文")
+            else:
+                error_msg = concept_data.get('error', '未找到相关资料')
+                logs.append(f"⚠️ 概念搜索失败: {error_msg}")
+
+        return logs, enhanced_message

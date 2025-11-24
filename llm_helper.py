@@ -9,14 +9,16 @@ from openai_helper import (
     init_openai_llm, is_openai_configured,
     get_openai_conversation_response_stream,
     evaluate_openai_profile,
-    write_openai_final_prompt_stream
+    write_openai_final_prompt_stream,
+    run_openai_structured_prompt
 )
 from gemini_helper import (
     init_gemini_llm, is_gemini_configured,
     get_gemini_conversation_response_stream,
     evaluate_gemini_profile,
     write_gemini_final_prompt_stream,
-    start_gemini_chat_session
+    start_gemini_chat_session,
+    run_gemini_structured_prompt
 )
 
 # --- API Type Configuration ---
@@ -210,3 +212,12 @@ def get_current_api_type() -> str:
 def reset_chat_history():
     """Reset chat history for OpenAI sessions - 不再需要，因为不再使用全局状态"""
     pass
+
+def run_structured_prompt(system_prompt: str, user_prompt: str) -> str:
+    """Run a lightweight structured prompt with whichever API is configured."""
+    api_type = get_current_api_type()
+    if api_type == "openai":
+        return run_openai_structured_prompt(system_prompt, user_prompt)
+    if api_type == "gemini":
+        return run_gemini_structured_prompt(system_prompt, user_prompt)
+    raise ValueError("LLM未配置，无法运行结构化提示")

@@ -8,4 +8,6 @@ websockets
 requests
 beautifulsoup4
 lxml
+httpx
+search_helper
 # 基础依赖

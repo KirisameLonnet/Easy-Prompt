@@ -330,6 +330,24 @@ def evaluate_openai_profile(full_profile: str) -> dict:
         print(error_message)
         return {"is_ready_for_writing": False, "critique": error_message}
 
+def run_openai_structured_prompt(system_prompt: str, user_prompt: str) -> str:
+    """Runs a lightweight non-streaming request for control tasks (e.g., intent classification)."""
+    if not is_openai_configured():
+        raise ValueError("OpenAI API未配置")
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    response = _make_openai_request(messages, stream=False)
+    response_data = response.json()
+
+    if 'choices' not in response_data or not response_data['choices']:
+        raise ValueError("OpenAI响应缺少choices字段")
+
+    return response_data['choices'][0]['message']['content']
+
 def write_openai_final_prompt_stream(full_profile: str) -> Generator[str, None, None]:
     """
     使用OpenAI格式API生成最终提示词流

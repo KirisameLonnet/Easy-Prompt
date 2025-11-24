@@ -20,6 +20,7 @@ import {
   isPromptGenerated,
   isConversationContinued
 } from 'src/types/websocket';
+import { WEBSOCKET_URL } from 'src/config/backend';
 import { apiService } from './api';
 
 // API配置类型
@@ -51,7 +52,7 @@ class WebSocketService {
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 5;
   private readonly reconnectDelay = 1000;
-  private readonly websocketUrl = 'ws://127.0.0.1:8000/ws/prompt';
+  private readonly websocketUrl = WEBSOCKET_URL;
 
   // API配置状态
   private apiConfig = ref<ApiConfig | null>(null);

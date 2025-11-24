@@ -1,10 +1,37 @@
 """
 Handles all interactions with the web search tool.
 """
+import json
 import re
 import requests
+from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 from web_scraper import web_scraper
+from llm_helper import run_structured_prompt, get_current_api_type
+
+
+@dataclass
+class SearchIntent:
+    """Represents the decision on whether a message should trigger web search."""
+
+    should_search: bool
+    intent_type: str = "concept"  # concept | character | fresh_news
+    query: str = ""
+    confidence: float = 0.0
+    reason: str = ""
+    focus_term: Optional[str] = None
+    signals: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "should_search": self.should_search,
+            "intent_type": self.intent_type,
+            "query": self.query,
+            "confidence": self.confidence,
+            "reason": self.reason,
+            "focus_term": self.focus_term,
+            "signals": self.signals,
+        }
 
 
 class SearchHelper:
@@ -17,64 +44,392 @@ class SearchHelper:
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         })
-    
-    def detect_character_query(self, message: str) -> Optional[Dict[str, Any]]:
-        """
-        检测用户是否在询问角色/人物信息
-        
-        Returns:
-            如果是询问角色，返回 {
-                'is_query': True,
-                'query_type': 'character_info',
-                'character_name': str,
-                'original_message': str
-            }
-            否则返回 None
-        """
-        # 询问角色的常见模式（优化后的正则表达式）
-        patterns = [
-            # "你知道雷电将军这个角色吗"
-            (r'(?:你知道|你了解|你认识|听说过)(?:吗)?(.+?)(?:这个)?(?:角色|人物)', 1),
-            # "关于孙悟空角色的信息" - 提取"孙悟空"
-            (r'关于(.+?)(?:这个)?(?:角色|人物)', 1),
-            # "角色鸣人是什么样的"
-            (r'角色(.+?)(?:是什么|是谁|怎么样|如何)', 1),
-            # "介绍一下艾斯这个角色"
-            (r'介绍(?:一下)?(.+?)(?:这个)?(?:角色|人物)', 1),
-            # "雷电将军这个角色的背景"
-            (r'(.+?)(?:这个)?(?:角色|人物)(?:的)?(?:背景|设定|信息|资料)', 1),
+
+        # Precompiled keyword lists for intent detection
+        self.explicit_search_words = [
+            "搜索", "搜一下", "查一下", "查查", "联网", "上网查", "帮我查", "帮我搜",
+            "google", "百度", "检索", "look up", "search"
         ]
-        
-        # 需要排除的无效词
-        invalid_words = ['这个', '那个', '某个', '一个', '我想创建', '创建', '新建', '关于']
-        
-        for pattern, group_idx in patterns:
+        self.uncertainty_words = [
+            "不知道", "不清楚", "不熟悉", "不了解", "没听过", "忘了", "搞不懂",
+            "不明白", "not familiar", "no idea"
+        ]
+        self.assistant_probe_patterns = [
+            r'(?:你知道|你了解|你认识|听说过).+吗',
+            r'do you know [^?]+\?'
+        ]
+        self.time_sensitive_words = [
+            "最新", "最近", "现在", "当前", "实时", "今年", "刚刚", "news",
+            "today", "update", "发生了什么", "情况如何"
+        ]
+        self.verification_words = [
+            "证据", "根据", "来源", "出处", "参考", "citation", "official", "可信"
+        ]
+        self.fact_keywords = [
+            "历史", "原理", "背景", "信息", "资料", "事实", "统计", "情况", "数据",
+            "status", "evidence"
+        ]
+        self.info_words = [
+            "介绍", "说明", "解释", "告诉", "资料", "背景", "梗概", "详情", "概述",
+            "what is", "who is", "explain", "describe"
+        ]
+        self.definition_phrases = [
+            "什么是", "啥是", "何谓", "who is", "what is", "定义", "meaning of",
+            "什么意思", "是什么", "是哪位", "which is", "告诉我关于"
+        ]
+        self.character_keywords = [
+            "角色", "人物", "女主", "男主", "英雄", "反派", "character", "hero",
+            "villain", "npc"
+        ]
+        self.news_keywords = [
+            "新闻", "动态", "发生", "事件", "爆发", "update", "latest", "today",
+            "现在怎么样", "现状"
+        ]
+        self.creative_keywords = [
+            "创建", "写一个", "生成", "设计", "编写", "做一个", "write a", "create",
+            "build", "生成一个", "请帮我写"
+        ]
+        self.stopwords_for_queries = {
+            "这个", "那个", "角色", "人物", "资料", "信息", "东西", "什么", "请问",
+            "一下", "关于", "介绍", "最新", "最近", "帮我", "一个", "有哪些", "情况",
+            "发生", "告诉", "故事", "如何", "怎么", "怎么样", "怎样", "请", "想要",
+            "需要", "生成", "创造", "创建", "设计", "写", "写个", "写一段", "someone",
+            "news", "today"
+        }
+        self.llm_planner_system_prompt = (
+            "You are an assistant that decides whether to perform a real-time web search before "
+            "answering a user. You must carefully analyze the user's message, determine if fresh, factual, or "
+            "character-specific information from the internet is required, and output a strict JSON object with "
+            "the following fields: should_search (bool), intent_type (concept|character|fresh_news), query "
+            "(string), confidence (0-1 float), reason (short string), focus_term (string). Only respond with JSON."
+        )
+
+    def _add_signal(self, signals: Dict[str, Dict[str, Any]], key: str, weight: float, explanation: str):
+        signals[key] = {"weight": weight, "explanation": explanation}
+
+    def _collect_search_signals(self, message: str, focus_term: Optional[str]) -> Dict[str, Dict[str, Any]]:
+        signals: Dict[str, Dict[str, Any]] = {}
+        lowered = message.lower()
+
+        if any(word in message for word in self.explicit_search_words):
+            self._add_signal(signals, 'explicit_request', 3.2, "用户明确要求联网/搜索")
+
+        if any(word in message for word in self.uncertainty_words):
+            self._add_signal(signals, 'knowledge_gap', 1.6, "用户表示不熟悉或缺乏信息")
+
+        for pattern in self.assistant_probe_patterns:
+            if re.search(pattern, message, flags=re.IGNORECASE):
+                self._add_signal(signals, 'knowledge_gap', 1.5, "用户确认助手是否了解某对象")
+                break
+
+        if any(word in message for word in self.time_sensitive_words) or re.search(r'20\d{2}', message):
+            self._add_signal(signals, 'time_sensitive', 2.4, "问题涉及最新/时间敏感信息")
+
+        if '?' in message or '？' in message:
+            self._add_signal(signals, 'question_form', 1.0, "输入呈疑问句形式")
+
+        if any(word in lowered for word in ['what is', 'who is', 'explain', 'tell me about', 'can you explain']):
+            self._add_signal(signals, 'english_query', 1.4, "英文信息查询需求")
+
+        if any(word in message for word in self.verification_words):
+            self._add_signal(signals, 'verification_need', 1.5, "用户要求权威来源/证据")
+
+        if any(word in message for word in self.fact_keywords):
+            self._add_signal(signals, 'factual_need', 1.2, "问题涉及客观资料")
+
+        if any(word in message for word in self.info_words):
+            self._add_signal(signals, 'info_request', 1.3, "用户请求现有信息简介")
+
+        if any(phrase in message for phrase in self.definition_phrases):
+            self._add_signal(signals, 'definition_request', 1.4, "用户在询问概念/定义")
+
+        if focus_term:
+            self._add_signal(signals, 'specific_target', 1.1, f"检测到可能的查询对象: {focus_term}")
+
+        if any(word in message for word in self.creative_keywords):
+            self._add_signal(signals, 'creative_only', -2.3, "输入以创作/生成需求为主")
+
+        return signals
+
+    def _normalize_focus_term(self, text: str) -> str:
+        if not text:
+            return ""
+        cleaned = text.strip()
+        cleaned = cleaned.strip("，,。.?？!！：:;·-~ ")
+        for prefix in ['关于', '对于', '针对', '介绍', '说明']:
+            if cleaned.startswith(prefix) and len(cleaned) > len(prefix) + 1:
+                cleaned = cleaned[len(prefix):]
+        for suffix in ['角色', '人物', '设定', '资料', '信息']:
+            if cleaned.endswith(suffix) and len(cleaned) > len(suffix) + 1:
+                cleaned = cleaned[:-len(suffix)]
+        return cleaned.strip()
+
+    def _extract_focus_term(self, message: str) -> Optional[str]:
+        if not message:
+            return None
+
+        search_patterns = [
+            r'(?:联网)?(?:搜索|搜|查)(?:一下|一下下|下|一波)?(?P<term>[\u4e00-\u9fa5A-Za-z0-9·]{2,64})',
+            r'look up (?P<term>[A-Za-z0-9\s\-]{2,64})',
+            r'google (?P<term>[A-Za-z0-9\s\-]{2,64})'
+        ]
+        for pattern in search_patterns:
+            match = re.search(pattern, message, flags=re.IGNORECASE)
+            if match:
+                term = self._normalize_focus_term(match.group('term'))
+                if term:
+                    return term
+
+        ask_assistant_patterns = [
+            r'(?:你知道|你了解|你认识|听说过)(?P<term>[\u4e00-\u9fa5A-Za-z0-9·]{2,32})(?:吗)?',
+            r'do you know (?P<term>[A-Za-z0-9\s\-]{2,64})'
+        ]
+        for pattern in ask_assistant_patterns:
+            match = re.search(pattern, message, flags=re.IGNORECASE)
+            if match:
+                term = self._normalize_focus_term(match.group('term'))
+                if term:
+                    return term
+
+        quoted = re.search(r'[“"《「『【(（](?P<term>[\u4e00-\u9fa5A-Za-z0-9\s\-·]{2,64})[”"》」』】)）]', message)
+        if quoted:
+            term = self._normalize_focus_term(quoted.group('term'))
+            if term:
+                return term
+
+        cn_patterns = [
+            r'什么是(?P<term>[^?？。！!]+)',
+            r'(?P<term>[^?？。！!]+?)是什么',
+            r'(?P<term>[^?？。！!]+?)是谁',
+            r'介绍(?:一下)?(?P<term>[^?？。！!]+)',
+            r'关于(?P<term>[^?？。！!]+?)(?:的|是|有)',
+        ]
+        for pattern in cn_patterns:
             match = re.search(pattern, message)
             if match:
-                character_name = match.group(group_idx).strip()
-                
-                # 清理角色名称
-                # 移除开头的"关于"等词
-                for word in ['关于', '对于', '针对']:
-                    if character_name.startswith(word):
-                        character_name = character_name[len(word):].strip()
-                
-                # 验证角色名称有效性
-                is_valid = (
-                    character_name and 
-                    len(character_name) > 1 and 
-                    character_name not in invalid_words and
-                    not any(invalid in character_name for invalid in ['创建', '新建'])
-                )
-                
-                if is_valid:
-                    return {
-                        'is_query': True,
-                        'query_type': 'character_info',
-                        'character_name': character_name,
-                        'original_message': message
-                    }
-        
+                term = self._normalize_focus_term(match.group('term'))
+                if term:
+                    return term
+
+        en_patterns = [
+            r'what is (?P<term>[a-z0-9\s\-&]+)',
+            r'who is (?P<term>[a-z0-9\s\-&]+)',
+            r'can you explain (?P<term>[a-z0-9\s\-&]+)',
+            r'tell me about (?P<term>[a-z0-9\s\-&]+)',
+            r'explain (?P<term>[a-z0-9\s\-&]+)',
+        ]
+        lowered = message.lower()
+        for pattern in en_patterns:
+            match = re.search(pattern, lowered)
+            if match:
+                term = self._normalize_focus_term(match.group('term'))
+                if term:
+                    return term
+
+        return None
+
+    def _extract_chinese_candidates(self, message: str) -> List[str]:
+        return re.findall(r'[\u4e00-\u9fa5]{2,8}', message)
+
+    def _extract_english_candidates(self, message: str) -> List[str]:
+        candidates = re.findall(r'[A-Za-z][A-Za-z0-9\s\-]{2,60}', message)
+        return [cand.strip() for cand in candidates]
+
+    def _derive_query_from_message(self, message: str, intent_type: str, focus_term: Optional[str]) -> str:
+        if focus_term:
+            return focus_term[:80]
+
+        if intent_type == 'character':
+            char_patterns = [
+                r'(?P<name>[\u4e00-\u9fa5A-Za-z0-9·]{2,16})(?:这个|这位|这名)?(?:角色|人物)',
+                r'角色(?P<name>[\u4e00-\u9fa5A-Za-z0-9·]{2,16})',
+                r'character (?P<name>[A-Za-z0-9\s\-]{2,32})'
+            ]
+            for pattern in char_patterns:
+                match = re.search(pattern, message, flags=re.IGNORECASE)
+                if match:
+                    candidate = self._normalize_focus_term(match.group('name'))
+                    if candidate:
+                        return candidate[:80]
+
+        candidates: List[str] = []
+        candidates.extend(self._extract_chinese_candidates(message))
+        candidates.extend(self._extract_english_candidates(message))
+
+        for candidate in candidates:
+            normalized = self._normalize_focus_term(candidate)
+            if normalized and normalized.lower() not in self.stopwords_for_queries:
+                return normalized[:80]
+
+        trimmed = re.sub(r'[?？。！!、,:;]', ' ', message).strip()
+        return trimmed[:80] if trimmed else message[:80]
+
+    def _looks_like_name(self, term: Optional[str]) -> bool:
+        if not term:
+            return False
+        has_chinese = bool(re.search(r'[\u4e00-\u9fa5]', term))
+        if has_chinese and len(term) <= 6:
+            return True
+        if term and term[0].isupper():
+            return True
+        return False
+
+    def _guess_intent_type(self, message: str, focus_term: Optional[str], signals: Dict[str, Dict[str, Any]]) -> str:
+        lowered = message.lower()
+        if any(word in message for word in self.news_keywords) or '发生了' in message:
+            return 'fresh_news'
+        if any(word in message for word in self.character_keywords):
+            return 'character'
+        if focus_term and self._looks_like_name(focus_term):
+            if any(word in message for word in ['角色', '人物', 'character']):
+                return 'character'
+            if 'explicit_request' in signals or 'knowledge_gap' in signals:
+                return 'character'
+        if any(word in lowered for word in ['latest', 'update', 'news']):
+            return 'fresh_news'
+        return 'concept'
+
+    def plan_search_strategy(self, message: str) -> Dict[str, Any]:
+        """Assess whether the assistant should perform a web search before answering."""
+        content = (message or "").strip()
+        if not content:
+            return SearchIntent(False).to_dict()
+
+        heuristic_intent = self._build_heuristic_intent(content)
+
+        llm_plan = self._call_llm_planner(content, heuristic_intent)
+        if llm_plan:
+            return llm_plan.to_dict()
+        return heuristic_intent.to_dict()
+
+    def _build_heuristic_intent(self, content: str) -> SearchIntent:
+        focus_term = self._extract_focus_term(content)
+        signals = self._collect_search_signals(content, focus_term)
+        intent_type = self._guess_intent_type(content, focus_term, signals)
+
+        positive_score = sum(max(0.0, data['weight']) for data in signals.values())
+        negative_score = sum(-min(0.0, data['weight']) for data in signals.values())
+        net_score = positive_score - negative_score
+
+        base_threshold = 2.4
+        should_search = net_score >= base_threshold or 'explicit_request' in signals
+        if 'time_sensitive' in signals:
+            should_search = net_score >= 1.3 or 'explicit_request' in signals
+        if 'creative_only' in signals and net_score < 3.5 and 'explicit_request' not in signals:
+            should_search = False
+
+        confidence = max(0.0, min(1.0, positive_score / 6.0))
+        query = self._derive_query_from_message(content, intent_type, focus_term) if should_search else ""
+
+        positive_reasons = [data['explanation'] for data in signals.values() if data['weight'] > 0]
+        negative_reasons = [data['explanation'] for data in signals.values() if data['weight'] < 0]
+        reason_parts = []
+        if positive_reasons:
+            reason_parts.append('；'.join(positive_reasons))
+        if negative_reasons:
+            reason_parts.append(f"抑制条件: {'；'.join(negative_reasons)}")
+        reason = '；'.join(reason_parts) if reason_parts else "未触发联网条件"
+
+        return SearchIntent(
+            should_search=should_search,
+            intent_type=intent_type,
+            query=query,
+            confidence=confidence,
+            reason=reason,
+            focus_term=focus_term,
+            signals=signals
+        )
+
+    def _call_llm_planner(self, message: str, heuristic_intent: SearchIntent) -> Optional[SearchIntent]:
+        if get_current_api_type() == "none":
+            return None
+
+        heuristic_payload = heuristic_intent.to_dict().copy()
+        try:
+            user_prompt = (
+                "<UserMessage>\n"
+                f"{message}\n"
+                "</UserMessage>\n"
+                "<HeuristicSuggestion>\n"
+                f"{json.dumps(heuristic_payload, ensure_ascii=False)}\n"
+                "</HeuristicSuggestion>\n"
+                "请基于用户输入与启发式建议，判断是否需要联网搜索，并输出严格的JSON。"
+            )
+            response = run_structured_prompt(self.llm_planner_system_prompt, user_prompt)
+            parsed = self._parse_planner_response(response)
+            if not parsed:
+                return None
+
+            should_search = bool(parsed.get('should_search'))
+            intent_type = parsed.get('intent_type', heuristic_intent.intent_type)
+            query = parsed.get('query') or heuristic_intent.query
+            focus_term = parsed.get('focus_term') or heuristic_intent.focus_term
+            confidence = parsed.get('confidence', heuristic_intent.confidence)
+            reason = parsed.get('reason') or heuristic_intent.reason
+
+            if should_search and not query and focus_term:
+                query = focus_term
+
+            intent = SearchIntent(
+                should_search=should_search,
+                intent_type=intent_type or 'concept',
+                query=(query or "")[:120],
+                confidence=max(0.0, min(1.0, float(confidence) if confidence is not None else heuristic_intent.confidence)),
+                reason=reason,
+                focus_term=focus_term,
+                signals=heuristic_intent.signals
+            )
+            return intent
+        except Exception as exc:
+            print(f"LLM搜索规划失败: {exc}")
+            return None
+
+    def _parse_planner_response(self, response_text: str) -> Optional[Dict[str, Any]]:
+        if not response_text:
+            return None
+        cleaned = response_text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip('`')
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            return None
+    
+    def detect_character_query(self, message: str) -> Optional[Dict[str, Any]]:
+        """新版角色查询检测，基于多信号意图分析。"""
+        intent = self.plan_search_strategy(message)
+        if intent['should_search'] and intent['intent_type'] == 'character' and intent['query']:
+            character_name = self._normalize_focus_term(intent['query'])
+            if not character_name:
+                return None
+            return {
+                'is_query': True,
+                'query_type': 'character_info',
+                'character_name': character_name,
+                'original_message': message,
+                'confidence': intent.get('confidence', 0.0),
+                'reason': intent.get('reason', '')
+            }
+        return None
+
+    def detect_concept_query(self, message: str) -> Optional[Dict[str, Any]]:
+        """新版概念/事实查询检测，避免依赖固定正则。"""
+        intent = self.plan_search_strategy(message)
+        if intent['should_search'] and intent['intent_type'] in ('concept', 'fresh_news') and intent['query']:
+            concept_name = self._normalize_focus_term(intent['query'])
+            if not concept_name:
+                return None
+            return {
+                'is_query': True,
+                'query_type': 'concept_info',
+                'concept_name': concept_name,
+                'original_message': message,
+                'confidence': intent.get('confidence', 0.0),
+                'reason': intent.get('reason', '')
+            }
         return None
     
     def search_duckduckgo(self, query: str, max_results: int = 3) -> Dict[str, Any]:
@@ -314,6 +669,48 @@ class SearchHelper:
             details['other_info'] = content[:500]
         
         return details
+
+    def _extract_concept_highlights(self, content: str) -> Dict[str, Any]:
+        """从网页正文中提取概念概要和关键要点"""
+        if not content:
+            return {'definition': '', 'key_points': []}
+
+        sentences = re.split(r'[。！？!?\.]\s*', content)
+        sentences = [s.strip() for s in sentences if len(s.strip()) > 10]
+
+        if not sentences:
+            return {'definition': content[:200], 'key_points': []}
+
+        definition = sentences[0]
+
+        keyword_groups = [
+            ['应用', '用途', '使用', '场景'],
+            ['特点', '特征', '优势', '劣势'],
+            ['起源', '历史', '背景'],
+            ['注意', '风险', '限制'],
+        ]
+
+        key_points: List[str] = []
+        for keywords in keyword_groups:
+            for sentence in sentences[1:]:
+                if any(keyword in sentence for keyword in keywords) and sentence not in key_points:
+                    key_points.append(sentence)
+                    break
+            if len(key_points) >= 4:
+                break
+
+        # 如果关键词匹配不足，补充前几句
+        if len(key_points) < 3:
+            for sentence in sentences[1:6]:
+                if sentence not in key_points:
+                    key_points.append(sentence)
+                if len(key_points) >= 4:
+                    break
+
+        return {
+            'definition': definition,
+            'key_points': key_points[:4]
+        }
     
     def search_character_info(self, character_name: str) -> Dict[str, Any]:
         """
@@ -400,6 +797,73 @@ class SearchHelper:
             'search_results': prioritized_results[:5],  # 返回前5个结果
             'web_content': web_content,
             'character_details': character_details,
+            'error': None
+        }
+
+    def search_concept_info(self, concept_name: str) -> Dict[str, Any]:
+        """搜索通用概念/术语的信息"""
+        search_queries = [
+            concept_name,
+            f"{concept_name} 是什么",
+            f"{concept_name} 意义",
+            f"{concept_name} 用途"
+        ]
+
+        aggregated_results: List[Dict[str, Any]] = []
+        for query in search_queries:
+            search_result = self.search_duckduckgo(query, max_results=2)
+            if search_result['success'] and search_result['results']:
+                aggregated_results.extend(search_result['results'])
+
+        seen_urls = set()
+        unique_results = []
+        for result in aggregated_results:
+            url = result.get('url', '')
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique_results.append(result)
+
+        if not unique_results:
+            return {
+                'success': False,
+                'concept_name': concept_name,
+                'search_results': [],
+                'web_content': None,
+                'concept_summary': '',
+                'key_points': [],
+                'error': '未找到相关搜索结果'
+            }
+
+        prioritized_results = self._prioritize_wiki_sites(unique_results)
+
+        web_content = None
+        highlights = {'definition': '', 'key_points': []}
+
+        for i, result in enumerate(prioritized_results[:3]):
+            url = result.get('url', '')
+            if url and url.startswith('http'):
+                try:
+                    content = web_scraper.scrape_webpage(url)
+                    if content and content.get('success') and content.get('content'):
+                        web_content = content
+                        highlights = self._extract_concept_highlights(content.get('content', ''))
+                        break
+                except Exception as exc:
+                    print(f"概念搜索抓取失败({i+1}): {exc}")
+                    continue
+
+        if not highlights['definition'] and prioritized_results:
+            highlights['definition'] = prioritized_results[0].get('snippet', '')[:200]
+
+        return {
+            'success': True,
+            'concept_name': concept_name,
+            'search_results': prioritized_results[:5],
+            'web_content': web_content,
+            'concept_summary': highlights.get('definition', ''),
+            'key_points': highlights.get('key_points', []),
+            'source_title': (web_content or {}).get('title'),
+            'source_url': (web_content or {}).get('url'),
             'error': None
         }
     

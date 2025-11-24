@@ -107,6 +107,10 @@ class SessionManager:
             会话列表
         """
         return await self.store.list_sessions(user_id, limit, offset)
+
+    async def get_all_sessions(self) -> List[Session]:
+        """向后兼容的别名，用于REST路由"""
+        return await self.store.list_sessions(user_id=None, limit=200, offset=0)
     
     async def update_session(
         self, 

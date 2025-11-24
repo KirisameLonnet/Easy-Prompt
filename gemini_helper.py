@@ -201,6 +201,21 @@ def evaluate_gemini_profile(full_profile: str) -> dict:
         print(error_message)
         return {"is_ready_for_writing": False, "critique": error_message}
 
+def run_gemini_structured_prompt(system_prompt: str, user_prompt: str) -> str:
+    """Runs a single-turn Gemini prompt for control/analysis tasks."""
+    if not is_gemini_configured():
+        raise ValueError("Gemini API未配置")
+
+    try:
+        planner_model = genai.GenerativeModel(
+            gemini_config["model"],
+            system_instruction=system_prompt
+        )
+        response = planner_model.generate_content(user_prompt)
+        return response.text
+    except Exception as e:
+        raise RuntimeError(f"Gemini结构化请求失败: {e}")
+
 def write_gemini_final_prompt_stream(full_profile: str) -> Generator[str, None, None]:
     """
     使用Gemini API生成最终提示词流

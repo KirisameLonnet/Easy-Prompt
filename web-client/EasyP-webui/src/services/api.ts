@@ -3,8 +3,7 @@
  * 会话管理的REST API服务
  */
 import type { Session, SessionCreate, SessionUpdate, ChatMessage, EvaluationData } from 'src/types/websocket';
-
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+import { API_BASE_URL } from 'src/config/backend';
 
 export interface ApiResponse<T = unknown> {
   success: boolean;

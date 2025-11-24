@@ -210,6 +210,7 @@ import EnhancedEvaluationCard from 'src/components/EnhancedEvaluationCard.vue';
 import SessionSidebar from 'src/components/SessionSidebar.vue';
 import DebugPanel from 'src/components/DebugPanel.vue';
 import { websocketService, type ApiConfig } from 'src/services/websocket';
+import { WEBSOCKET_URL } from 'src/config/backend';
 
 // Quasar 实例
 const $q = useQuasar();
@@ -272,7 +273,7 @@ const apiConfigComplete = computed(() => {
 
 // 移除认证状态检查
 
-const websocketUrl = 'ws://127.0.0.1:8000/ws/prompt';
+const websocketUrl = WEBSOCKET_URL;
 
 const chatHeight = computed(() => {
   // 计算聊天区域高度
